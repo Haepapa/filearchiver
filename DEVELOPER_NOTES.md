@@ -1,7 +1,7 @@
-This development specification outlines the requirements for "Archivist", a CLI-based file management utility written in Go. It is designed to automate the movement, organization, and cataloging of files from source directories to a structured archive.
+This development specification outlines the requirements for "filearchiver", a CLI-based file management utility written in Go. It is designed to automate the movement, organization, and cataloging of files from source directories to a structured archive.
 1. Project Overview
 
-Archivist is a Go-based command-line tool that processes files based on a YAML configuration. It moves files into a date- and extension-based directory structure, verifies integrity, maintains a SQLite audit log, and handles naming collisions automatically.
+filearchiver is a Go-based command-line tool that processes files based on a YAML configuration. It moves files into a date- and extension-based directory structure, verifies integrity, maintains a SQLite audit log, and handles naming collisions automatically.
 Key Logic Flow
 2. Technical Stack
 
@@ -68,7 +68,7 @@ The "Move" must be a Copy-then-Delete operation to ensure safety across differen
 
 5. Database Schema
 
-A SQLite database (archivist.db) must be initialized on first run with two tables:
+A SQLite database (filearchiver.db) must be initialized on first run with two tables:
 5.1 Table: history
 
 Logs every action taken by the engine. | Column | Type | Description | | :--- | :--- | :--- | | id | INTEGER PK | Auto-increment | | timestamp | DATETIME | When the event occurred | | job_name | TEXT | Name from config or "manual" | | status | TEXT | "SUCCESS", "FAILED", "SKIPPED" | | message | TEXT | Error details or "File moved" |
@@ -105,10 +105,10 @@ Stores metadata for every file successfully archived. | Column | Type | Descript
 
     Validation: Ensure the input directory is not a parent of the output directory to avoid infinite loops.
 
-Next Step: Would you like me to generate the Go project structure and the boilerplate code for the SQLite database initialization?This development specification outlines the requirements for "Archivist", a CLI-based file management utility written in Go. It is designed to automate the movement, organization, and cataloging of files from source directories to a structured archive.
+Next Step: Would you like me to generate the Go project structure and the boilerplate code for the SQLite database initialization?This development specification outlines the requirements for "filearchiver", a CLI-based file management utility written in Go. It is designed to automate the movement, organization, and cataloging of files from source directories to a structured archive.
 1. Project Overview
 
-Archivist is a Go-based command-line tool that processes files based on a YAML configuration. It moves files into a date- and extension-based directory structure, verifies integrity, maintains a SQLite audit log, and handles naming collisions automatically.
+filearchiver is a Go-based command-line tool that processes files based on a YAML configuration. It moves files into a date- and extension-based directory structure, verifies integrity, maintains a SQLite audit log, and handles naming collisions automatically.
 Key Logic Flow
 2. Technical Stack
 
@@ -175,7 +175,7 @@ The "Move" must be a Copy-then-Delete operation to ensure safety across differen
 
 5. Database Schema
 
-A SQLite database (archivist.db) must be initialized on first run with two tables:
+A SQLite database (filearchiver.db) must be initialized on first run with two tables:
 5.1 Table: history
 
 Logs every action taken by the engine. | Column | Type | Description | | :--- | :--- | :--- | | id | INTEGER PK | Auto-increment | | timestamp | DATETIME | When the event occurred | | job_name | TEXT | Name from config or "manual" | | status | TEXT | "SUCCESS", "FAILED", "SKIPPED" | | message | TEXT | Error details or "File moved" |
