@@ -1,0 +1,49 @@
+name: Build binaries
+
+on:
+  push:
+    branches: ["test", "prod"]
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Download deps
+        run: go mod download
+      - name: Test
+        run: go test ./...
+
+  build:
+    name: Build cross-platform binaries
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - name: Build
+        shell: bash
+        run: |
+          mkdir -p dist
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o dist/filearchiver-${{ matrix.goos }}-${{ matrix.goarch }}$EXT .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: filearchiver-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/filearchiver-${{ matrix.goos }}-${{ matrix.goarch }}*
+          if-no-files-found: error
