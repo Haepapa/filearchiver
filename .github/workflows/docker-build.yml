@@ -6,7 +6,7 @@ permissions:
 
 on:
   push:
-    branches: [ main, master ]
+    branches: ["test", "prod"]
   workflow_dispatch:
     inputs:
       image_name:
