@@ -1,184 +1,80 @@
-name: Docker Build (Multi-Platform)
+name: Docker Build and Publish
 
-permissions:
-  contents: read
-  packages: write
+run-name: "Docker Build and Publish - ${{ inputs.environment }}"
 
 on:
-  push:
-    branches: ["test", "prod"]
   workflow_dispatch:
     inputs:
-      image_name:
-        description: 'Image name (e.g., owner/repo or registry/repo)'
-        required: false
-        default: ''
-      tags:
-        description: 'Comma-separated tags'
-        required: false
-        default: 'latest'
-      platforms:
-        description: 'Comma-separated platforms'
-        required: false
-        default: 'linux/amd64,linux/arm64'
-      context:
-        description: 'Build context'
-        required: false
-        default: '.'
-      dockerfile:
-        description: 'Dockerfile path'
-        required: false
-        default: 'Dockerfile'
-      build_args:
-        description: 'Comma-separated build args (KEY=VALUE)'
-        required: false
-        default: ''
-      extra_flags:
-        description: 'Additional flags for docker buildx build'
-        required: false
-        default: ''
-      push:
-        description: 'Push image'
-        required: false
-        default: 'true'
-      config_path:
-        description: 'Path to JSON config file'
-        required: false
-        default: '.github/docker-build.json'
-      registry:
-        description: 'Registry for login (optional)'
-        required: false
-        default: ''
+      environment:
+        description: "Target environment (branch to build from)"
+        required: true
+        type: choice
+        options:
+          - test
+          - prod
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Ensure jq is available
-        run: |
-          if ! command -v jq >/dev/null; then
-            sudo apt-get update -y
-            sudo apt-get install -y jq
-          fi
-
-      - name: Load config JSON
-        env:
-          CONFIG_PATH: ${{ inputs.config_path }}
-        run: |
-          set -e
-          CONFIG_PATH="${CONFIG_PATH:-.github/docker-build.json}"
-          if [ -f "$CONFIG_PATH" ]; then
-            if ! SANITIZED_JSON=$(jq -c . "$CONFIG_PATH"); then
-              echo "Failed to parse JSON config at $CONFIG_PATH"
-              exit 1
-            fi
-            printf 'CONFIG_JSON=%s\n' "$SANITIZED_JSON" >> "$GITHUB_ENV"
-            echo "Loaded config from $CONFIG_PATH"
-          else
-            printf 'CONFIG_JSON=%s\n' '{}' >> "$GITHUB_ENV"
-            echo "No config file at $CONFIG_PATH; using defaults/inputs."
-          fi
-
-      - name: Resolve settings
-        env:
-          CONFIG_JSON: ${{ env.CONFIG_JSON }}
-          IN_IMAGE_NAME: ${{ inputs.image_name }}
-          IN_TAGS: ${{ inputs.tags }}
-          IN_PLATFORMS: ${{ inputs.platforms }}
-          IN_CONTEXT: ${{ inputs.context }}
-          IN_DOCKERFILE: ${{ inputs.dockerfile }}
-          IN_BUILD_ARGS: ${{ inputs.build_args }}
-          IN_EXTRA_FLAGS: ${{ inputs.extra_flags }}
-          IN_PUSH: ${{ inputs.push }}
-        run: |
-          set -e
-          get_json() { jq -r ".${1} // empty" <<< "$CONFIG_JSON"; }
-
-          IMAGE_NAME="${IN_IMAGE_NAME}"
-          [ -z "$IMAGE_NAME" ] && IMAGE_NAME="$(get_json image_name)"
-          [ -z "$IMAGE_NAME" ] && IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY}"
-
-          TAGS="${IN_TAGS}"
-          [ -z "$TAGS" ] && TAGS="$(get_json tags)"
-          [ -z "$TAGS" ] && TAGS="latest"
-
-          PLATFORMS="${IN_PLATFORMS}"
-          [ -z "$PLATFORMS" ] && PLATFORMS="$(get_json platforms)"
-          [ -z "$PLATFORMS" ] && PLATFORMS="linux/amd64,linux/arm64"
-
-          CONTEXT="${IN_CONTEXT}"
-          [ -z "$CONTEXT" ] && CONTEXT="$(get_json context)"
-          [ -z "$CONTEXT" ] && CONTEXT="."
-
-          DOCKERFILE="${IN_DOCKERFILE}"
-          [ -z "$DOCKERFILE" ] && DOCKERFILE="$(get_json dockerfile)"
-          [ -z "$DOCKERFILE" ] && DOCKERFILE="Dockerfile"
-
-          EXTRA_FLAGS="${IN_EXTRA_FLAGS}"
-          [ -z "$EXTRA_FLAGS" ] && EXTRA_FLAGS="$(get_json extra_flags)"
-
-          PUSH="${IN_PUSH}"
-          [ -z "$PUSH" ] && PUSH="$(get_json push)"
-          [ -z "$PUSH" ] && PUSH="true"
-
-          BUILD_ARGS_FLAGS=""
-          if [ -z "${IN_BUILD_ARGS}" ]; then
-            BUILD_ARGS_FLAGS="$(jq -r '
-              if has("build_args") then
-                .build_args |
-                if type=="object" then
-                  to_entries | map("--build-arg \(.key)=\(.value)") | join(" ")
-                elif type=="array" then
-                  map("--build-arg "+.) | join(" ")
-                elif type=="string" then
-                  split(",") | map("--build-arg "+.) | join(" ")
-                else "" end
-              else "" end
-            ' <<< "$CONFIG_JSON")"
-          fi
-          if [ -n "${IN_BUILD_ARGS}" ]; then
-            IFS=',' read -ra BA <<< "${IN_BUILD_ARGS}"
-            for arg in "${BA[@]}"; do
-              [ -n "$arg" ] && BUILD_ARGS_FLAGS="$BUILD_ARGS_FLAGS --build-arg $arg"
-            done
-          fi
-
-          TAG_FLAGS=""
-          IFS=',' read -ra TARR <<< "$TAGS"
-          for t in "${TARR[@]}"; do
-            t="${t//[[:space:]]/}"
-            [ -n "$t" ] && TAG_FLAGS="$TAG_FLAGS -t ${IMAGE_NAME}:$t"
-          done
-
-          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
-          echo "PLATFORMS=$PLATFORMS" >> $GITHUB_ENV
-          echo "CONTEXT=$CONTEXT" >> $GITHUB_ENV
-          echo "DOCKERFILE=$DOCKERFILE" >> $GITHUB_ENV
-          echo "TAG_FLAGS=$TAG_FLAGS" >> $GITHUB_ENV
-          echo "BUILD_ARGS_FLAGS=$BUILD_ARGS_FLAGS" >> $GITHUB_ENV
-          echo "EXTRA_FLAGS=$EXTRA_FLAGS" >> $GITHUB_ENV
-          echo "PUSH=$PUSH" >> $GITHUB_ENV
-
-      - name: Login to GHCR
-        if: ${{ env.PUSH == 'true' }}
-        uses: docker/login-action@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          registry: ghcr.io
+          ref: refs/heads/${{ inputs.environment }}
+
+      # Install the cosign tool for signing images
+      - name: Install cosign
+        uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
+        with:
+          cosign-release: "v2.2.4"
+
+      # Set up BuildKit Docker container builder for multi-platform builds
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+
+      # Login to GitHub Container Registry
+      - name: Log into registry ${{ env.REGISTRY }}
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
-        run: |
-          set -e
-          if [ "$PUSH" = "true" ]; then
-            PUSH_FLAG="--push"
-          else
-            PUSH_FLAG="--load"
-          fi
-          echo "docker buildx build --platform \"$PLATFORMS\" -f \"$DOCKERFILE\" $BUILD_ARGS_FLAGS $TAG_FLAGS $EXTRA_FLAGS \"$CONTEXT\" $PUSH_FLAG"
-          docker buildx build --platform "$PLATFORMS" -f "$DOCKERFILE" $BUILD_ARGS_FLAGS $TAG_FLAGS $EXTRA_FLAGS "$CONTEXT" $PUSH_FLAG
+      # Extract metadata (tags, labels) for Docker
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934 # v5.0.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ inputs.environment }}
+            type=raw,value=latest,enable=${{ inputs.environment == 'prod' }}
+
+      # Build and push Docker image with Buildx
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Sign the published Docker image
+      - name: Sign the published Docker image
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}

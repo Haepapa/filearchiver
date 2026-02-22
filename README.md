@@ -17,8 +17,10 @@ A small, fast CLI that archives files from a source directory into a structured 
   - git clone <this repo>
   - go build -o filearchiver ./
 - Docker: Pull the container image
-  - docker pull ghcr.io/haepapa/filearchiver:latest
+  - Test environment: `docker pull ghcr.io/haepapa/filearchiver:test`
+  - Production: `docker pull ghcr.io/haepapa/filearchiver:prod` or `ghcr.io/haepapa/filearchiver:latest`
   - See docker-compose.example.yml for usage examples
+  - Images are built via GitHub Actions from test/prod branches
 
 ## Quick start
 - One-off run:
@@ -102,6 +104,20 @@ Tests the Docker image build and all functionality in containerized mode:
   - CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o dist/filearchiver-darwin-arm64 ./
   - CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o dist/filearchiver-windows-amd64.exe ./
 - CI builds run automatically on pushes to test and prod after tests pass; artifacts are attached to the workflow run.
+
+## Building Docker Images
+
+Docker images are built manually via GitHub Actions:
+
+1. Go to: [Actions → Docker Build and Publish](https://github.com/Haepapa/filearchiver/actions)
+2. Click "Run workflow"
+3. Select environment:
+   - **test** - Builds from test branch, tags as `ghcr.io/haepapa/filearchiver:test`
+   - **prod** - Builds from prod branch, tags as `ghcr.io/haepapa/filearchiver:prod` and `latest`
+4. Click "Run workflow"
+
+Images are built for `linux/amd64` and `linux/arm64` platforms and pushed to GitHub Container Registry.
+Images are signed with cosign for security.
 
 ## Troubleshooting
 - “lock file exists”: remove .filearchiver.lock if no other run is active
