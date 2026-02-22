@@ -75,7 +75,26 @@ Use this mode when you have an existing archive directory or need to rebuild the
 Example: ./filearchiver -init -output /path/to/archive
 
 ## Testing
-- Run tests: go test ./...
+
+### Go Tests (Unit/Integration)
+```bash
+go test ./...
+```
+Tests the application logic directly by building and running the binary. Fast and runs everywhere.
+
+### Docker Tests (Container Integration)
+```bash
+./scripts/test-docker.sh
+```
+Tests the Docker image build and all functionality in containerized mode:
+- Image builds successfully
+- Help command works
+- One-off archive mode
+- Init mode with database handling
+- Config-based multi-job mode
+- Volume persistence
+
+**Requirements:** Docker must be running. Tests are automated in CI/CD.
 
 ## Building cross-platform
 - Examples:
