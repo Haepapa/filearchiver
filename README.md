@@ -16,6 +16,9 @@ A small, fast CLI that archives files from a source directory into a structured 
 - Build from source: Requires Go 1.21+
   - git clone <this repo>
   - go build -o filearchiver ./
+- Docker: Pull the container image
+  - docker pull ghcr.io/haepapa/filearchiver:latest
+  - See docker-compose.example.yml for usage examples
 
 ## Quick start
 - One-off run:
@@ -88,3 +91,50 @@ Example: ./filearchiver -init -output /path/to/archive
 
 ## License
 See LICENSE.
+
+## Docker Usage
+
+### Quick Start with Docker
+```bash
+# Pull the latest image
+docker pull ghcr.io/haepapa/filearchiver:latest
+
+# Run a one-off archive job
+docker run --rm \
+  -v /path/to/source:/data/input:ro \
+  -v /path/to/archive:/data/output \
+  -v $(pwd)/data:/data \
+  ghcr.io/haepapa/filearchiver:latest \
+  -input /data/input -output /data/output
+
+# Initialize existing archive
+docker run --rm \
+  -v /path/to/archive:/data/output \
+  -v $(pwd)/data:/data \
+  ghcr.io/haepapa/filearchiver:latest \
+  -init -output /data/output
+```
+
+### Using Docker Compose
+See `docker-compose.example.yml` for a complete example with volume mounts and configuration options.
+
+```bash
+# Copy and customize the example
+cp docker-compose.example.yml docker-compose.yml
+# Edit paths and settings
+nano docker-compose.yml
+# Run
+docker-compose up
+```
+
+### Volume Mounts
+- `/data/input` - Source directory for archiving (mount as read-only)
+- `/data/output` - Destination/archive directory
+- `/data/config` - Optional config directory for YAML files
+- `/data` - Persistent volume for database (filearchiver.db) and lock files
+
+### Building Your Own Image
+```bash
+docker build -t filearchiver:custom .
+docker run --rm filearchiver:custom --help
+```

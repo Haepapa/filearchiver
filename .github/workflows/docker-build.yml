@@ -171,6 +171,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        run: |
+          set -e
           if [ "$PUSH" = "true" ]; then
             PUSH_FLAG="--push"
           else
@@ -178,7 +182,3 @@ jobs:
           fi
           echo "docker buildx build --platform \"$PLATFORMS\" -f \"$DOCKERFILE\" $BUILD_ARGS_FLAGS $TAG_FLAGS $EXTRA_FLAGS \"$CONTEXT\" $PUSH_FLAG"
           docker buildx build --platform "$PLATFORMS" -f "$DOCKERFILE" $BUILD_ARGS_FLAGS $TAG_FLAGS $EXTRA_FLAGS "$CONTEXT" $PUSH_FLAG
-            CMD="$CMD --load"
-          fi
-          echo "$CMD"
-          eval "$CMD"
