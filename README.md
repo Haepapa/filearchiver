@@ -89,9 +89,6 @@ Example: ./filearchiver -init -output /path/to/archive
 - Permission errors: ensure read access on source and write access on destination
 - Too many duplicates: more than 99 colliding names in _duplicates; adjust filenames or clean duplicates
 
-## License
-See LICENSE.
-
 ## Docker Usage
 
 ### Quick Start with Docker
@@ -99,9 +96,9 @@ See LICENSE.
 # Pull the latest image
 docker pull ghcr.io/haepapa/filearchiver:latest
 
-# Run a one-off archive job
+# Run a one-off archive job (source will be moved to archive)
 docker run --rm \
-  -v /path/to/source:/data/input:ro \
+  -v /path/to/source:/data/input \
   -v /path/to/archive:/data/output \
   -v $(pwd)/data:/data \
   ghcr.io/haepapa/filearchiver:latest \
@@ -113,6 +110,16 @@ docker run --rm \
   -v $(pwd)/data:/data \
   ghcr.io/haepapa/filearchiver:latest \
   -init -output /data/output
+
+# With config file
+docker run --rm \
+  -v /path/to/config:/config:ro \
+  -v /path/to/source1:/data/source1 \
+  -v /path/to/source2:/data/source2 \
+  -v /path/to/archive:/data/archive \
+  -v $(pwd)/data:/data \
+  ghcr.io/haepapa/filearchiver:latest \
+  -config /config/config.yaml
 ```
 
 ### Using Docker Compose
@@ -128,10 +135,17 @@ docker-compose up
 ```
 
 ### Volume Mounts
-- `/data/input` - Source directory for archiving (mount as read-only)
+- `/data/input` - Source directory for archiving (files will be moved, not copied)
 - `/data/output` - Destination/archive directory
-- `/data/config` - Optional config directory for YAML files
+- `/config` - Mount config directory here for YAML files (use `/config/config.yaml`)
 - `/data` - Persistent volume for database (filearchiver.db) and lock files
+- Mount any custom source/destination paths as needed for your use case
+
+### Important Notes
+- **Files are moved, not copied** - Source files are deleted after successful archiving
+- Mount source as read-write unless using init mode
+- Database persists in the `/data` volume between runs
+- Config files should be mounted in `/config` directory (not `/data/config`)
 
 ### Building Your Own Image
 ```bash

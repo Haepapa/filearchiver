@@ -5,18 +5,18 @@ services:
     image: ghcr.io/haepapa/filearchiver:latest
     container_name: filearchiver
     volumes:
-      # Mount your source directory (read-only recommended for archiving)
-      - /path/to/source:/data/input:ro
+      # Mount your source directory
+      - /path/to/source:/data/input
       # Mount your destination/archive directory
       - /path/to/archive:/data/output
-      # Mount config file if using config-based mode
-      - /path/to/config.yaml:/data/config/config.yaml:ro
+      # Mount config directory if using config-based mode
+      - /path/to/config:/config:ro
       # Persistent data for database and lock files
       - filearchiver-data:/data
     # Example: One-off archive job
     command: ["-input", "/data/input", "-output", "/data/output"]
     # Or for config-based mode:
-    # command: ["-config", "/data/config/config.yaml"]
+    # command: ["-config", "/config/config.yaml"]
     # Or for init mode:
     # command: ["-init", "-output", "/data/output"]
     restart: "no"  # Change to "unless-stopped" for persistent archiving
@@ -30,9 +30,9 @@ volumes:
 #   filearchiver-batch:
 #     image: ghcr.io/haepapa/filearchiver:latest
 #     volumes:
-#       - ./config.yaml:/data/config/config.yaml:ro
-#       - /mnt/photos:/data/photos:ro
-#       - /mnt/documents:/data/documents:ro
+#       - /path/to/config:/config:ro
+#       - /mnt/photos:/data/photos
+#       - /mnt/documents:/data/documents
 #       - /mnt/archive:/data/archive
 #       - filearchiver-data:/data
-#     command: ["-config", "/data/config/config.yaml"]
+#     command: ["-config", "/config/config.yaml"]
