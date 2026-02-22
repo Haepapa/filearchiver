@@ -36,6 +36,7 @@ func main() {
 	outputFlag := flag.String("output", "", "Destination directory for one-off job")
 	configFlag := flag.String("config", "", "Path to YAML config file")
 	ignoreFileFlag := flag.String("ignorefile", "", "Path to global .archiveignore file")
+	initFlag := flag.Bool("init", false, "Initialize mode: scan and register existing files in output directory")
 	flag.Parse()
 
 	if err := acquireLock(); err != nil {
@@ -51,6 +52,30 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+
+	if *initFlag {
+		if *outputFlag == "" {
+			fmt.Fprintf(os.Stderr, "Error: -init requires -output flag\n")
+			flag.Usage()
+			os.Exit(1)
+		}
+		if err := backupExistingDatabase(); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to backup database: %v\n", err)
+			os.Exit(1)
+		}
+		db.Close()
+		db, err = initDatabase()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create new database: %v\n", err)
+			os.Exit(1)
+		}
+		if err := runInitMode(*outputFlag); err != nil {
+			fmt.Fprintf(os.Stderr, "Init failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Initialization complete")
+		return
+	}
 
 	var jobs []Job
 
@@ -358,4 +383,226 @@ func logFileRegistry(originalPath, archivePath, fileName string, size int64, che
 		originalPath, archivePath, fileName, size, checksum, modTime,
 	)
 	return err
+}
+
+func backupExistingDatabase() error {
+	if _, err := os.Stat(dbFile); os.IsNotExist(err) {
+		return nil
+	}
+
+	timestamp := time.Now().Format("20060102_150405")
+	backupName := fmt.Sprintf("filearchiver.db.%s", timestamp)
+	
+	if err := os.Rename(dbFile, backupName); err != nil {
+		return fmt.Errorf("failed to backup database: %w", err)
+	}
+	
+	fmt.Printf("Backed up existing database to: %s\n", backupName)
+	return nil
+}
+
+func runInitMode(outputDir string) error {
+	absOutput, err := filepath.Abs(outputDir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve output path: %w", err)
+	}
+
+	if _, err := os.Stat(absOutput); os.IsNotExist(err) {
+		return fmt.Errorf("output directory does not exist: %s", absOutput)
+	}
+
+	fmt.Printf("Initializing from output directory: %s\n", absOutput)
+
+	duplicatesPath := filepath.Join(absOutput, "_duplicates")
+	var allFiles []string
+	var duplicateFiles []string
+	var regularFiles []string
+
+	err = filepath.Walk(absOutput, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  [WARNING] Error accessing %s: %v\n", path, err)
+			return nil
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(absOutput, path)
+		if err != nil {
+			return err
+		}
+
+		if strings.HasPrefix(relPath, "_duplicates"+string(filepath.Separator)) {
+			duplicateFiles = append(duplicateFiles, path)
+		} else {
+			regularFiles = append(regularFiles, path)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("error walking directory: %w", err)
+	}
+
+	allFiles = append(duplicateFiles, regularFiles...)
+
+	fileCount := 0
+	movedCount := 0
+
+	for _, path := range allFiles {
+		info, err := os.Stat(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  [FAILED] Stat %s: %v\n", path, err)
+			continue
+		}
+
+		relPath, err := filepath.Rel(absOutput, path)
+		if err != nil {
+			continue
+		}
+
+		fileCount++
+
+		isInDuplicates := strings.HasPrefix(relPath, "_duplicates"+string(filepath.Separator))
+
+		if !isInDuplicates && isValidArchivedPath(relPath) {
+			if err := registerExistingFile(path, info); err != nil {
+				fmt.Fprintf(os.Stderr, "  [FAILED] Register %s: %v\n", path, err)
+			} else {
+				fmt.Printf("  [REGISTERED] %s\n", path)
+			}
+		} else {
+			newPath, err := moveToValidPath(path, info, absOutput)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  [FAILED] Move %s: %v\n", path, err)
+			} else {
+				movedCount++
+				if isInDuplicates {
+					fmt.Printf("  [MOVED] %s -> %s (from _duplicates)\n", path, newPath)
+				} else {
+					fmt.Printf("  [MOVED] %s -> %s\n", path, newPath)
+				}
+			}
+		}
+	}
+
+	if len(duplicateFiles) > 0 && len(regularFiles) > 0 {
+		if _, err := os.Stat(duplicatesPath); err == nil {
+			entries, _ := os.ReadDir(duplicatesPath)
+			isEmpty := true
+			for _, entry := range entries {
+				if entry.IsDir() {
+					subEntries, _ := os.ReadDir(filepath.Join(duplicatesPath, entry.Name()))
+					if len(subEntries) > 0 {
+						isEmpty = false
+						break
+					}
+				}
+			}
+			if isEmpty {
+				os.RemoveAll(duplicatesPath)
+			}
+		}
+	}
+
+	fmt.Printf("Processed %d files (%d moved, %d already valid)\n", fileCount, movedCount, fileCount-movedCount)
+	return nil
+}
+
+func isValidArchivedPath(relPath string) bool {
+	parts := filepath.SplitList(strings.ReplaceAll(relPath, string(filepath.Separator), string(filepath.ListSeparator)))
+	if len(parts) < 5 {
+		return false
+	}
+
+	year := parts[len(parts)-4]
+	month := parts[len(parts)-3]
+	day := parts[len(parts)-2]
+
+	if len(year) != 4 || len(month) != 2 || len(day) != 2 {
+		return false
+	}
+
+	for _, r := range year {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	for _, r := range month {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	for _, r := range day {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
+func registerExistingFile(path string, info os.FileInfo) error {
+	checksum, err := computeChecksum(path)
+	if err != nil {
+		return err
+	}
+
+	return logFileRegistry(path, path, info.Name(), info.Size(), checksum, info.ModTime())
+}
+
+func moveToValidPath(srcPath string, info os.FileInfo, outputRoot string) (string, error) {
+	ext := strings.TrimPrefix(filepath.Ext(srcPath), ".")
+	if ext == "" {
+		ext = "no_extension"
+	}
+
+	modTime := info.ModTime()
+	year := fmt.Sprintf("%04d", modTime.Year())
+	month := fmt.Sprintf("%02d", int(modTime.Month()))
+	day := fmt.Sprintf("%02d", modTime.Day())
+
+	filename := filepath.Base(srcPath)
+	destPath := filepath.Join(outputRoot, ext, year, month, day, filename)
+
+	destPath, err := handleCollision(destPath, outputRoot, ext, year, month, day, filename)
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return "", err
+	}
+
+	if err := os.Rename(srcPath, destPath); err != nil {
+		return "", fmt.Errorf("failed to move file: %w", err)
+	}
+
+	checksum, err := computeChecksum(destPath)
+	if err != nil {
+		return "", err
+	}
+
+	if err := logFileRegistry(srcPath, destPath, filename, info.Size(), checksum, modTime); err != nil {
+		return "", err
+	}
+
+	return destPath, nil
+}
+
+func computeChecksum(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	hash := md5.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }

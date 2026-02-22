@@ -9,6 +9,7 @@ A small, fast CLI that archives files from a source directory into a structured 
 - Per-run history and file registry stored in filearchiver.db
 - Local and global ignore files (.archiveignore)
 - Single-instance protection via .filearchiver.lock
+- Initialize mode to scan and register existing archived files
 
 ## Install
 - Prebuilt binaries: After a branch is merged into test or prod, go to GitHub → Actions → “Build binaries” → select the latest run → download artifacts for your OS/arch (filearchiver-<os>-<arch>). Windows binaries have .exe.
@@ -21,12 +22,15 @@ A small, fast CLI that archives files from a source directory into a structured 
   - ./filearchiver -input /path/to/src -output /path/to/dst
 - Using a config file:
   - ./filearchiver -config /path/to/config.yaml
+- Initialize existing archive:
+  - ./filearchiver -init -output /path/to/existing/archive
 
 ### Flags
 - -input: source directory for a one-off job
 - -output: destination directory for a one-off job
 - -config: path to YAML config file (batch jobs)
 - -ignorefile: path to a global .archiveignore file applied to all jobs
+- -init: initialize mode - scan and register existing files in output directory (requires -output)
 
 ### YAML config example
 jobs:
@@ -49,6 +53,23 @@ jobs:
 - Database: filearchiver.db is created in the working directory with tables history and file_registry
 - Safety: a .filearchiver.lock file prevents concurrent runs; remove it if a previous run crashed
 - Validation: destination cannot be inside source
+
+### Initialize mode (-init)
+Use this mode when you have an existing archive directory or need to rebuild the database:
+- Backs up any existing database file with a timestamp suffix (e.g., filearchiver.db.20260222_081955)
+- Creates a fresh database and populates it from scratch
+- Recursively scans the output directory for all files, including those in _duplicates
+- Processes files from _duplicates folder first to allow collision handling
+- Files already in valid paths ({extension}/{YYYY}/{MM}/{DD}/{filename}) are registered in the database
+- Files in invalid paths are carefully moved to the correct location based on their modification date
+- Duplicate collision handling applies during the move process
+- Useful for:
+  - Initial setup when you already have organized files
+  - Recovering from database corruption or loss
+  - Migrating from a partially organized structure
+  - Rebuilding the database registry from existing archives
+
+Example: ./filearchiver -init -output /path/to/archive
 
 ## Testing
 - Run tests: go test ./...
