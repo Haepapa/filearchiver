@@ -59,16 +59,17 @@ func main() {
 			flag.Usage()
 			os.Exit(1)
 		}
+		db.Close()
 		if err := backupExistingDatabase(); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to backup database: %v\n", err)
 			os.Exit(1)
 		}
-		db.Close()
 		db, err = initDatabase()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to create new database: %v\n", err)
 			os.Exit(1)
 		}
+		defer db.Close()
 		if err := runInitMode(*outputFlag); err != nil {
 			fmt.Fprintf(os.Stderr, "Init failed: %v\n", err)
 			os.Exit(1)
