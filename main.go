@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
 	"gopkg.in/yaml.v3"
+	_ "modernc.org/sqlite"
 )
 
 type Config struct {
@@ -490,19 +490,30 @@ func runInitMode(outputDir string) error {
 
 	if len(duplicateFiles) > 0 && len(regularFiles) > 0 {
 		if _, err := os.Stat(duplicatesPath); err == nil {
-			entries, _ := os.ReadDir(duplicatesPath)
 			isEmpty := true
-			for _, entry := range entries {
-				if entry.IsDir() {
-					subEntries, _ := os.ReadDir(filepath.Join(duplicatesPath, entry.Name()))
-					if len(subEntries) > 0 {
-						isEmpty = false
-						break
-					}
+			err := filepath.WalkDir(duplicatesPath, func(path string, d os.DirEntry, err error) error {
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "  [WARNING] Error checking %s: %v\n", path, err)
+					return nil
 				}
+				// Skip the root directory itself
+				if path == duplicatesPath {
+					return nil
+				}
+				// If we find any file or non-empty directory, it's not empty
+				if !d.IsDir() {
+					isEmpty = false
+					return filepath.SkipAll
+				}
+				return nil
+			})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  [WARNING] Error walking duplicates path: %v\n", err)
 			}
 			if isEmpty {
-				os.RemoveAll(duplicatesPath)
+				if err := os.RemoveAll(duplicatesPath); err != nil {
+					fmt.Fprintf(os.Stderr, "  [WARNING] Failed to remove empty duplicates path: %v\n", err)
+				}
 			}
 		}
 	}
@@ -512,7 +523,7 @@ func runInitMode(outputDir string) error {
 }
 
 func isValidArchivedPath(relPath string) bool {
-	parts := filepath.SplitList(strings.ReplaceAll(relPath, string(filepath.Separator), string(filepath.ListSeparator)))
+	parts := strings.Split(filepath.Clean(relPath), string(filepath.Separator))
 	if len(parts) < 5 {
 		return false
 	}

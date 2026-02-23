@@ -81,6 +81,7 @@ Example: ./filearchiver -init -output /path/to/archive
 ### Go Tests (Unit/Integration)
 ```bash
 go test ./...
+go test -v ./...
 ```
 Tests the application logic directly by building and running the binary. Fast and runs everywhere.
 
