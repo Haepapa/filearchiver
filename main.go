@@ -588,13 +588,13 @@ func moveToValidPath(srcPath string, info os.FileInfo, outputRoot string) (strin
 		return "", err
 	}
 
-	if err := os.Rename(srcPath, destPath); err != nil {
-		return "", fmt.Errorf("failed to move file: %w", err)
-	}
-
-	checksum, err := computeChecksum(destPath)
+	checksum, err := computeChecksum(srcPath)
 	if err != nil {
 		return "", err
+	}
+
+	if err := os.Rename(srcPath, destPath); err != nil {
+		return "", fmt.Errorf("failed to move file: %w", err)
 	}
 
 	if err := logFileRegistry(srcPath, destPath, filename, info.Size(), checksum, modTime); err != nil {
