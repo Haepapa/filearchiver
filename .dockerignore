@@ -1,0 +1,29 @@
+# Git files
+.git
+.gitignore
+.github
+
+# Build artifacts
+filearchiver
+dist/
+*.exe
+
+# Test files
+*_test.go
+main_test.go
+
+# Documentation
+README.md
+DEVELOPER_NOTES.md
+LICENSE
+
+# Database and lock files
+*.db
+*.db.*
+.filearchiver.lock
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
