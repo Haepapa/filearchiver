@@ -457,3 +457,52 @@ func TestInitModeHandlesMultipleDuplicateCollisions(t *testing.T) {
 		t.Fatalf("expected 2 duplicates with collision handling, found %d", foundDups)
 	}
 }
+
+func TestInitModeHonorsIgnoreFile(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	dst := filepath.Join(work, "dst")
+	if err := os.MkdirAll(dst, 0755); err != nil { t.Fatal(err) }
+
+	mt := time.Date(2023, 10, 15, 12, 0, 0, 0, time.Local)
+
+	invalidPath1 := filepath.Join(dst, "document.txt")
+	if err := os.WriteFile(invalidPath1, []byte("should be moved"), 0644); err != nil { t.Fatal(err) }
+	if err := os.Chtimes(invalidPath1, mt, mt); err != nil { t.Fatal(err) }
+
+	invalidPath2 := filepath.Join(dst, "keepme.tmp")
+	if err := os.WriteFile(invalidPath2, []byte("should be ignored"), 0644); err != nil { t.Fatal(err) }
+	if err := os.Chtimes(invalidPath2, mt, mt); err != nil { t.Fatal(err) }
+
+	invalidPath3 := filepath.Join(dst, ".DS_Store")
+	if err := os.WriteFile(invalidPath3, []byte("should be ignored"), 0644); err != nil { t.Fatal(err) }
+	if err := os.Chtimes(invalidPath3, mt, mt); err != nil { t.Fatal(err) }
+
+	ignoreFilePath := filepath.Join(work, ".archiveignore")
+	if err := os.WriteFile(ignoreFilePath, []byte("*.tmp\n.DS_Store\n"), 0644); err != nil { t.Fatal(err) }
+	t.Logf("Created ignore file: %s", ignoreFilePath)
+
+	t.Logf("Created files: %s (move), %s (ignore), %s (ignore)", invalidPath1, invalidPath2, invalidPath3)
+
+	runBinary(t, bin, work, "-init", "-output", dst, "-ignorefile", ignoreFilePath)
+
+	if _, err := os.Stat(invalidPath1); err == nil {
+		t.Fatalf("expected document.txt to be moved from invalid path")
+	}
+
+	expectedPath := filepath.Join(dst, "txt", "2023", "10", "15", "document.txt")
+	if _, err := os.Stat(expectedPath); err != nil {
+		t.Fatalf("expected document.txt to be moved to valid path %s: %v", expectedPath, err)
+	}
+	t.Logf("document.txt correctly moved to: %s", expectedPath)
+
+	if _, err := os.Stat(invalidPath2); err != nil {
+		t.Fatalf("expected keepme.tmp to remain at original location (ignored): %v", err)
+	}
+	t.Logf("keepme.tmp correctly ignored and remained at: %s", invalidPath2)
+
+	if _, err := os.Stat(invalidPath3); err != nil {
+		t.Fatalf("expected .DS_Store to remain at original location (ignored): %v", err)
+	}
+	t.Logf(".DS_Store correctly ignored and remained at: %s", invalidPath3)
+}

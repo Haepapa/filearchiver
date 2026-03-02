@@ -70,7 +70,8 @@ func main() {
 			os.Exit(1)
 		}
 		defer db.Close()
-		if err := runInitMode(*outputFlag); err != nil {
+		ignorePatterns := loadIgnorePatterns(*outputFlag, *ignoreFileFlag)
+		if err := runInitMode(*outputFlag, ignorePatterns); err != nil {
 			fmt.Fprintf(os.Stderr, "Init failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -402,7 +403,7 @@ func backupExistingDatabase() error {
 	return nil
 }
 
-func runInitMode(outputDir string) error {
+func runInitMode(outputDir string, ignorePatterns []string) error {
 	absOutput, err := filepath.Abs(outputDir)
 	if err != nil {
 		return fmt.Errorf("failed to resolve output path: %w", err)
@@ -453,6 +454,11 @@ func runInitMode(outputDir string) error {
 	movedCount := 0
 
 	for _, path := range allFiles {
+		if shouldIgnore(path, ignorePatterns) {
+			fmt.Printf("  [IGNORED] %s\n", path)
+			continue
+		}
+
 		info, err := os.Stat(path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  [FAILED] Stat %s: %v\n", path, err)
