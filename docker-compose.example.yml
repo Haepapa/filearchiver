@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  filearchiver:
+    image: ghcr.io/haepapa/filearchiver:latest
+    container_name: filearchiver
+    volumes:
+      # Mount your source directory
+      - /path/to/source:/data/input
+      # Mount your destination/archive directory
+      - /path/to/archive:/data/output
+      # Mount config directory if using config-based mode
+      - /path/to/config:/config:ro
+      # Persistent data for database and lock files
+      - filearchiver-data:/data
+    # Example: One-off archive job
+    command: ["-input", "/data/input", "-output", "/data/output"]
+    # Or for config-based mode:
+    # command: ["-config", "/config/config.yaml"]
+    # Or for init mode:
+    # command: ["-init", "-output", "/data/output"]
+    restart: "no"  # Change to "unless-stopped" for persistent archiving
+
+volumes:
+  filearchiver-data:
+    driver: local
+
+# Alternative example for multiple jobs using config file:
+# services:
+#   filearchiver-batch:
+#     image: ghcr.io/haepapa/filearchiver:latest
+#     volumes:
+#       - /path/to/config:/config:ro
+#       - /mnt/photos:/data/photos
+#       - /mnt/documents:/data/documents
+#       - /mnt/archive:/data/archive
+#       - filearchiver-data:/data
+#     command: ["-config", "/config/config.yaml"]
