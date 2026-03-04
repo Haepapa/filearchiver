@@ -37,7 +37,20 @@ A small, fast CLI that archives files from a source directory into a structured 
 - -ignorefile: path to a global .archiveignore file applied to all jobs
 - -init: initialize mode - scan and register existing files in output directory (requires -output)
 
-### YAML config example
+### Configuration File
+
+The application supports YAML configuration files for running multiple archive jobs in a single execution. This is useful for automating recurring archive tasks or managing multiple source-destination pairs.
+
+#### Usage
+```bash
+./filearchiver -config /path/to/config.yaml
+```
+
+#### Configuration File Format
+
+Create a YAML file with the following structure:
+
+```yaml
 jobs:
   - name: "Photos Archive"
     source: "/path/to/raw"
@@ -45,6 +58,27 @@ jobs:
   - name: "Documents Archive"
     source: "/users/docs"
     destination: "/nas/docs"
+  - name: "Backup Job"
+    source: "/home/user/downloads"
+    destination: "/backup/downloads"
+```
+
+#### Configuration Keys
+
+**Top-level:**
+- `jobs` (required): Array of job configurations
+
+**Job object keys:**
+- `name` (required, string): A descriptive name for the job, used in logs and history
+- `source` (required, string): Absolute or relative path to the source directory containing files to archive
+- `destination` (required, string): Absolute or relative path to the archive destination directory
+
+#### Notes
+- All jobs in the config file are processed sequentially
+- Each job follows the same archiving rules (extension/date organization, collision handling, verification)
+- Job execution continues even if one job fails; check logs for individual job status
+- The same ignore patterns (from `-ignorefile` or `.archiveignore`) apply to all jobs
+- Both source and destination paths are validated before processing each job
 
 ### Ignore patterns
 - Local: place .archiveignore in the source directory
