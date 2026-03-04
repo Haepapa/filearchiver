@@ -270,7 +270,7 @@ func processJob(job Job, ignorePatterns []string) {
 }
 
 func processFile(srcPath string, info os.FileInfo, job Job) error {
-	ext := strings.TrimPrefix(filepath.Ext(srcPath), ".")
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(srcPath), "."))
 	if ext == "" {
 		ext = "no_extension"
 	}
@@ -572,7 +572,7 @@ func registerExistingFile(path string, info os.FileInfo) error {
 }
 
 func moveToValidPath(srcPath string, info os.FileInfo, outputRoot string) (string, error) {
-	ext := strings.TrimPrefix(filepath.Ext(srcPath), ".")
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(srcPath), "."))
 	if ext == "" {
 		ext = "no_extension"
 	}
