@@ -1,6 +1,16 @@
 version: '3.8'
 
 services:
+  # Setup service - run once to create directories and template files
+  filearchiver-setup:
+    image: ghcr.io/haepapa/filearchiver:latest
+    container_name: filearchiver-setup
+    volumes:
+      # Persistent data for database, config, and ignore files
+      - filearchiver-data:/data
+    command: ["-setup", "-input", "/data/input", "-output", "/data/output"]
+    restart: "no"
+
   filearchiver:
     image: ghcr.io/haepapa/filearchiver:latest
     container_name: filearchiver

@@ -10,6 +10,7 @@ A small, fast CLI that archives files from a source directory into a structured 
 - Local and global ignore files (.archiveignore)
 - Single-instance protection via .filearchiver.lock
 - Initialize mode to scan and register existing archived files
+- Setup mode to prepare directories and configuration files
 
 ## Install
 - Prebuilt binaries: After a branch is merged into test or prod, go to GitHub → Actions → “Build binaries” → select the latest run → download artifacts for your OS/arch (filearchiver-<os>-<arch>). Windows binaries have .exe.
@@ -23,6 +24,8 @@ A small, fast CLI that archives files from a source directory into a structured 
   - Images are built via GitHub Actions from test/prod branches
 
 ## Quick start
+- Setup (first time):
+  - ./filearchiver -setup -input /path/to/src -output /path/to/dst
 - One-off run:
   - ./filearchiver -input /path/to/src -output /path/to/dst
 - Using a config file:
@@ -31,6 +34,7 @@ A small, fast CLI that archives files from a source directory into a structured 
   - ./filearchiver -init -output /path/to/existing/archive
 
 ### Flags
+- -setup: setup mode - create directories and blank config/ignore files (see Setup mode below)
 - -input: source directory for a one-off job
 - -output: destination directory for a one-off job
 - -config: path to YAML config file (batch jobs)
@@ -92,6 +96,27 @@ jobs:
 - Database: filearchiver.db is created in the working directory with tables history and file_registry
 - Safety: a .filearchiver.lock file prevents concurrent runs; remove it if a previous run crashed
 - Validation: destination cannot be inside source
+
+### Setup mode (-setup)
+Use this mode for first-time setup or to prepare the environment:
+- Creates input and output directories if specified with -input and -output flags (if they don't exist)
+- Creates a template config.yaml file in the working directory (or at path specified with -config)
+- Creates a template .archiveignore file in the working directory
+- Does not overwrite existing files or directories
+- Useful for:
+  - First-time setup before running in Docker
+  - Preparing directories and configuration files before customization
+  - Creating volume mount points for Docker containers
+  - Setting up the environment to add custom ignore patterns before running -init
+
+Example: ./filearchiver -setup -input /data/input -output /data/output
+
+**Docker users:** Run this once to create the volume directories and files, then edit config.yaml and .archiveignore before running your archive jobs:
+```bash
+docker run --rm -v $(pwd)/data:/data ghcr.io/haepapa/filearchiver:latest -setup -input /data/input -output /data/output
+# Edit $(pwd)/data/config.yaml and $(pwd)/data/.archiveignore as needed
+docker run --rm -v /source:/data/input -v /archive:/data/output -v $(pwd)/data:/data ghcr.io/haepapa/filearchiver:latest -input /data/input -output /data/output
+```
 
 ### Initialize mode (-init)
 Use this mode when you have an existing archive directory or need to rebuild the database:
@@ -165,6 +190,14 @@ Images are signed with cosign for security.
 ```bash
 # Pull the latest image
 docker pull ghcr.io/haepapa/filearchiver:latest
+
+# First-time setup: Create directories and template files
+docker run --rm \
+  -v $(pwd)/data:/data \
+  ghcr.io/haepapa/filearchiver:latest \
+  -setup -input /data/input -output /data/output
+
+# Edit config.yaml and .archiveignore in $(pwd)/data/ as needed
 
 # Run a one-off archive job (source will be moved to archive)
 docker run --rm \
