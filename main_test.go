@@ -506,3 +506,173 @@ func TestInitModeHonorsIgnoreFile(t *testing.T) {
 	}
 	t.Logf(".DS_Store correctly ignored and remained at: %s", invalidPath3)
 }
+
+func TestSetupModeCreatesDirectories(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	src := filepath.Join(work, "newsrc")
+	dst := filepath.Join(work, "newdst")
+
+	cmd := exec.Command(bin, "-setup", "-input", src, "-output", dst)
+	cmd.Dir = work
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("setup command failed: %v\n%s", err, string(out))
+	}
+	t.Logf("Setup output: %s", string(out))
+
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		t.Fatalf("expected input directory to be created: %v", err)
+	}
+	t.Logf("Input directory created: %s", src)
+
+	if _, err := os.Stat(dst); os.IsNotExist(err) {
+		t.Fatalf("expected output directory to be created: %v", err)
+	}
+	t.Logf("Output directory created: %s", dst)
+}
+
+func TestSetupModeCreatesConfigFile(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+
+	cmd := exec.Command(bin, "-setup")
+	cmd.Dir = work
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("setup command failed: %v\n%s", err, string(out))
+	}
+	t.Logf("Setup output: %s", string(out))
+
+	configPath := filepath.Join(work, "config.yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("expected config file to be created: %v", err)
+	}
+
+	content := string(data)
+	if !strings.Contains(content, "jobs:") {
+		t.Fatalf("expected config file to contain 'jobs:', got: %s", content)
+	}
+	t.Logf("Config file created with valid content: %s", configPath)
+}
+
+func TestSetupModeCreatesIgnoreFile(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+
+	cmd := exec.Command(bin, "-setup")
+	cmd.Dir = work
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("setup command failed: %v\n%s", err, string(out))
+	}
+	t.Logf("Setup output: %s", string(out))
+
+	ignorePath := filepath.Join(work, ".archiveignore")
+	data, err := os.ReadFile(ignorePath)
+	if err != nil {
+		t.Fatalf("expected ignore file to be created: %v", err)
+	}
+
+	content := string(data)
+	if !strings.Contains(content, "ignore patterns") {
+		t.Fatalf("expected ignore file to contain template text, got: %s", content)
+	}
+	t.Logf("Ignore file created with valid content: %s", ignorePath)
+}
+
+func TestSetupModeWithCustomConfigPath(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	configDir := filepath.Join(work, "custom")
+	if err := os.MkdirAll(configDir, 0755); err != nil { t.Fatal(err) }
+	
+	customConfigPath := filepath.Join(configDir, "myconfig.yaml")
+
+	cmd := exec.Command(bin, "-setup", "-config", customConfigPath)
+	cmd.Dir = work
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("setup command failed: %v\n%s", err, string(out))
+	}
+	t.Logf("Setup output: %s", string(out))
+
+	data, err := os.ReadFile(customConfigPath)
+	if err != nil {
+		t.Fatalf("expected custom config file to be created: %v", err)
+	}
+
+	if !strings.Contains(string(data), "jobs:") {
+		t.Fatalf("expected custom config file to contain 'jobs:'")
+	}
+	t.Logf("Custom config file created: %s", customConfigPath)
+}
+
+func TestSetupModeDoesNotOverwriteExisting(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	src := filepath.Join(work, "src")
+	if err := os.MkdirAll(src, 0755); err != nil { t.Fatal(err) }
+
+	configPath := filepath.Join(work, "config.yaml")
+	originalContent := "# original config\njobs: []"
+	if err := os.WriteFile(configPath, []byte(originalContent), 0644); err != nil { t.Fatal(err) }
+
+	ignorePath := filepath.Join(work, ".archiveignore")
+	originalIgnore := "# original ignore\n*.bak"
+	if err := os.WriteFile(ignorePath, []byte(originalIgnore), 0644); err != nil { t.Fatal(err) }
+
+	cmd := exec.Command(bin, "-setup", "-input", src)
+	cmd.Dir = work
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("setup command failed: %v\n%s", err, string(out))
+	}
+	t.Logf("Setup output: %s", string(out))
+
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to read config file: %v", err)
+	}
+	if string(configData) != originalContent {
+		t.Fatalf("config file was overwritten, expected: %s, got: %s", originalContent, string(configData))
+	}
+	t.Logf("Config file not overwritten")
+
+	ignoreData, err := os.ReadFile(ignorePath)
+	if err != nil {
+		t.Fatalf("failed to read ignore file: %v", err)
+	}
+	if string(ignoreData) != originalIgnore {
+		t.Fatalf("ignore file was overwritten, expected: %s, got: %s", originalIgnore, string(ignoreData))
+	}
+	t.Logf("Ignore file not overwritten")
+}
+
+func TestSetupModeDoesNotImpactNormalOperation(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	src := filepath.Join(work, "src")
+	dst := filepath.Join(work, "dst")
+
+	cmd := exec.Command(bin, "-setup", "-input", src, "-output", dst)
+	cmd.Dir = work
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("setup command failed: %v\n%s", err, string(out))
+	}
+	t.Logf("Setup completed")
+
+	mt := time.Date(2023, 7, 14, 12, 0, 0, 0, time.Local)
+	f := writeFileWithModTime(t, src, "test.txt", "content", mt)
+
+	runBinary(t, bin, work, "-input", src, "-output", dst)
+
+	if !isDirEmpty(t, src) {
+		t.Fatalf("expected source to be empty after archive")
+	}
+	expectMoved(t, dst, f, mt)
+	t.Logf("Normal operation works after setup")
+}
+
