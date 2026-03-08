@@ -35,10 +35,10 @@ RUN mkdir -p /data/input /data/output /config
 RUN chown -R archiver:archiver /data /config
 
 # Volume for persistent data
-VOLUME ["/data"]
+VOLUME ["/config"]
 
 # Set the working directory to /data for database and lock files
-WORKDIR /data
+WORKDIR /config
 
 USER archiver
 

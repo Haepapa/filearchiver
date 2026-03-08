@@ -37,11 +37,11 @@ func main() {
 	configFlag := flag.String("config", "", "Path to YAML config file")
 	ignoreFileFlag := flag.String("ignorefile", "", "Path to global .archiveignore file")
 	initFlag := flag.Bool("init", false, "Initialize mode: scan and register existing files in output directory")
-	setupFlag := flag.Bool("setup", false, "Setup mode: create directories and blank config/ignore files")
+	setupFlag := flag.String("setup", "", "Setup mode: path where config.yaml and .archiveignore are created (e.g. -setup /conf/config)")
 	flag.Parse()
 
-	if *setupFlag {
-		if err := runSetupMode(*inputFlag, *outputFlag, *configFlag); err != nil {
+	if *setupFlag != "" {
+		if err := runSetupMode(*inputFlag, *outputFlag, *configFlag, *setupFlag); err != nil {
 			fmt.Fprintf(os.Stderr, "Setup failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -652,10 +652,29 @@ func computeChecksum(path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func runSetupMode(inputPath, outputPath, configPath string) error {
-	workDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
+func runSetupMode(inputPath, outputPath, configPath, setupPath string) error {
+	// Determine the base directory for config.yaml and .archiveignore.
+	// When setupPath is provided it is used directly; otherwise fall back to
+	// the current working directory (preserving the original default behaviour).
+	var baseDir string
+	if setupPath != "" {
+		abs, err := filepath.Abs(setupPath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve setup path: %w", err)
+		}
+		baseDir = abs
+		if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+			if err := os.MkdirAll(baseDir, 0755); err != nil {
+				return fmt.Errorf("failed to create setup directory %s: %w", baseDir, err)
+			}
+			fmt.Printf("Created setup directory: %s\n", baseDir)
+		}
+	} else {
+		wd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get working directory: %w", err)
+		}
+		baseDir = wd
 	}
 
 	if inputPath != "" {
@@ -690,7 +709,7 @@ func runSetupMode(inputPath, outputPath, configPath string) error {
 
 	configFilePath := configPath
 	if configFilePath == "" {
-		configFilePath = filepath.Join(workDir, "config.yaml")
+		configFilePath = filepath.Join(baseDir, "config.yaml")
 	}
 	if _, err := os.Stat(configFilePath); os.IsNotExist(err) {
 		configTemplate := `# filearchiver configuration file
@@ -708,7 +727,7 @@ jobs:
 		fmt.Printf("Config file already exists: %s\n", configFilePath)
 	}
 
-	ignoreFilePath := filepath.Join(workDir, ".archiveignore")
+	ignoreFilePath := filepath.Join(baseDir, ".archiveignore")
 	if _, err := os.Stat(ignoreFilePath); os.IsNotExist(err) {
 		ignoreTemplate := `# filearchiver ignore patterns
 # Add patterns for files/directories to ignore during archiving
