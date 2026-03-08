@@ -91,8 +91,44 @@ fi
 log_info "Creating test environment..."
 mkdir -p "$TEST_DIR"/{source,archive,archive_init,archive_config,data,data_init,data_config,source1,source2,config}
 
-# Test 2: One-off archive mode
-log_info "Test 2: One-off archive mode..."
+# Test 2: Setup mode
+log_info "Test 2: Setup mode..."
+SETUP_TEST_DIR="$TEST_DIR/setup_test"
+mkdir -p "$SETUP_TEST_DIR"
+
+if docker run --rm \
+    -v "$SETUP_TEST_DIR:/data" \
+    "$IMAGE_NAME" \
+    -setup -input /data/input -output /data/output > /tmp/setup-output.txt 2>&1; then
+    
+    # Check if directories were created
+    if [ -d "$SETUP_TEST_DIR/input" ] && [ -d "$SETUP_TEST_DIR/output" ]; then
+        log_success "Setup created input and output directories"
+    else
+        log_error "Setup did not create directories"
+        ls -la "$SETUP_TEST_DIR"
+    fi
+    
+    # Check if config file was created
+    if [ -f "$SETUP_TEST_DIR/config.yaml" ]; then
+        log_success "Setup created config.yaml"
+    else
+        log_error "Setup did not create config.yaml"
+    fi
+    
+    # Check if ignore file was created
+    if [ -f "$SETUP_TEST_DIR/.archiveignore" ]; then
+        log_success "Setup created .archiveignore"
+    else
+        log_error "Setup did not create .archiveignore"
+    fi
+else
+    log_error "Setup mode failed"
+    cat /tmp/setup-output.txt
+fi
+
+# Test 3: One-off archive mode
+log_info "Test 3: One-off archive mode..."
 echo "test file 1" > "$TEST_DIR/source/file1.txt"
 echo "test file 2" > "$TEST_DIR/source/file2.jpg"
 echo "test file 3" > "$TEST_DIR/source/doc.pdf"
@@ -131,8 +167,8 @@ else
     cat /tmp/archive-output.txt
 fi
 
-# Test 3: Init mode
-log_info "Test 3: Init mode..."
+# Test 4: Init mode
+log_info "Test 4: Init mode..."
 # Create mixed structure
 mkdir -p "$TEST_DIR/archive_init/pdf/2025/01/15"
 echo "organized" > "$TEST_DIR/archive_init/pdf/2025/01/15/proper.pdf"
@@ -182,8 +218,8 @@ else
     cat /tmp/init-output.txt
 fi
 
-# Test 4: Config mode
-log_info "Test 4: Config mode..."
+# Test 5: Config mode
+log_info "Test 5: Config mode..."
 echo "from source1" > "$TEST_DIR/source1/file1.txt"
 echo "from source2" > "$TEST_DIR/source2/file2.csv"
 
@@ -226,8 +262,8 @@ else
     cat /tmp/config-output.txt
 fi
 
-# Test 5: Volume persistence
-log_info "Test 5: Volume persistence..."
+# Test 6: Volume persistence
+log_info "Test 6: Volume persistence..."
 DB_COUNT=$(ls "$TEST_DIR"/data*/filearchiver.db* 2>/dev/null | wc -l)
 if [ "$DB_COUNT" -ge 3 ]; then
     log_success "Database files persist across runs ($DB_COUNT files found)"

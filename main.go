@@ -37,7 +37,17 @@ func main() {
 	configFlag := flag.String("config", "", "Path to YAML config file")
 	ignoreFileFlag := flag.String("ignorefile", "", "Path to global .archiveignore file")
 	initFlag := flag.Bool("init", false, "Initialize mode: scan and register existing files in output directory")
+	setupFlag := flag.Bool("setup", false, "Setup mode: create directories and blank config/ignore files")
 	flag.Parse()
+
+	if *setupFlag {
+		if err := runSetupMode(*inputFlag, *outputFlag, *configFlag); err != nil {
+			fmt.Fprintf(os.Stderr, "Setup failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Setup complete")
+		return
+	}
 
 	if err := acquireLock(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -623,4 +633,81 @@ func computeChecksum(path string) (string, error) {
 	}
 
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func runSetupMode(inputPath, outputPath, configPath string) error {
+	workDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	if inputPath != "" {
+		absInput, err := filepath.Abs(inputPath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve input path: %w", err)
+		}
+		if _, err := os.Stat(absInput); os.IsNotExist(err) {
+			if err := os.MkdirAll(absInput, 0755); err != nil {
+				return fmt.Errorf("failed to create input directory %s: %w", absInput, err)
+			}
+			fmt.Printf("Created input directory: %s\n", absInput)
+		} else {
+			fmt.Printf("Input directory already exists: %s\n", absInput)
+		}
+	}
+
+	if outputPath != "" {
+		absOutput, err := filepath.Abs(outputPath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve output path: %w", err)
+		}
+		if _, err := os.Stat(absOutput); os.IsNotExist(err) {
+			if err := os.MkdirAll(absOutput, 0755); err != nil {
+				return fmt.Errorf("failed to create output directory %s: %w", absOutput, err)
+			}
+			fmt.Printf("Created output directory: %s\n", absOutput)
+		} else {
+			fmt.Printf("Output directory already exists: %s\n", absOutput)
+		}
+	}
+
+	configFilePath := configPath
+	if configFilePath == "" {
+		configFilePath = filepath.Join(workDir, "config.yaml")
+	}
+	if _, err := os.Stat(configFilePath); os.IsNotExist(err) {
+		configTemplate := `# filearchiver configuration file
+# Add your archive jobs below
+jobs:
+  - name: "Example Job"
+    source: "/data/input"
+    destination: "/data/output"
+`
+		if err := os.WriteFile(configFilePath, []byte(configTemplate), 0644); err != nil {
+			return fmt.Errorf("failed to create config file %s: %w", configFilePath, err)
+		}
+		fmt.Printf("Created config file: %s\n", configFilePath)
+	} else {
+		fmt.Printf("Config file already exists: %s\n", configFilePath)
+	}
+
+	ignoreFilePath := filepath.Join(workDir, ".archiveignore")
+	if _, err := os.Stat(ignoreFilePath); os.IsNotExist(err) {
+		ignoreTemplate := `# filearchiver ignore patterns
+# Add patterns for files/directories to ignore during archiving
+# Examples:
+# *.tmp
+# .DS_Store
+# node_modules/
+# Thumbs.db
+`
+		if err := os.WriteFile(ignoreFilePath, []byte(ignoreTemplate), 0644); err != nil {
+			return fmt.Errorf("failed to create ignore file %s: %w", ignoreFilePath, err)
+		}
+		fmt.Printf("Created ignore file: %s\n", ignoreFilePath)
+	} else {
+		fmt.Printf("Ignore file already exists: %s\n", ignoreFilePath)
+	}
+
+	return nil
 }
