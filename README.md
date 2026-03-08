@@ -30,8 +30,10 @@ A small, fast CLI that archives files from a source directory into a structured 
   - ./filearchiver -input /path/to/src -output /path/to/dst
 - Using a config file:
   - ./filearchiver -config /path/to/config.yaml
-- Initialize existing archive:
+- Initialize existing archive (using -output):
   - ./filearchiver -init -output /path/to/existing/archive
+- Initialize existing archive (using config file):
+  - ./filearchiver -init -config /path/to/config.yaml
 
 ### Flags
 - -setup: setup mode - create directories and blank config/ignore files (see Setup mode below)
@@ -39,7 +41,7 @@ A small, fast CLI that archives files from a source directory into a structured 
 - -output: destination directory for a one-off job
 - -config: path to YAML config file (batch jobs)
 - -ignorefile: path to a global .archiveignore file applied to all jobs
-- -init: initialize mode - scan and register existing files in output directory (requires -output)
+- -init: initialize mode - scan and register existing files in output directory (requires -output or -config)
 
 ### Configuration File
 
@@ -127,13 +129,16 @@ Use this mode when you have an existing archive directory or need to rebuild the
 - Files already in valid paths ({extension}/{YYYY}/{MM}/{DD}/{filename}) are registered in the database
 - Files in invalid paths are carefully moved to the correct location based on their modification date
 - Duplicate collision handling applies during the move process
+- Accepts either -output (single directory) or -config (runs init for every job's destination)
 - Useful for:
   - Initial setup when you already have organized files
   - Recovering from database corruption or loss
   - Migrating from a partially organized structure
   - Rebuilding the database registry from existing archives
 
-Example: ./filearchiver -init -output /path/to/archive
+Examples:
+  - Single directory: ./filearchiver -init -output /path/to/archive
+  - All destinations in config: ./filearchiver -init -config /path/to/config.yaml
 
 ## Testing
 
