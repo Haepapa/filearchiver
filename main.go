@@ -64,8 +64,8 @@ func main() {
 	defer db.Close()
 
 	if *initFlag {
-		if *outputFlag == "" {
-			fmt.Fprintf(os.Stderr, "Error: -init requires -output flag\n")
+		if *outputFlag == "" && *configFlag == "" {
+			fmt.Fprintf(os.Stderr, "Error: -init requires -output flag or -config flag\n")
 			flag.Usage()
 			os.Exit(1)
 		}
@@ -80,10 +80,27 @@ func main() {
 			os.Exit(1)
 		}
 		defer db.Close()
-		ignorePatterns := loadIgnorePatterns(*outputFlag, *ignoreFileFlag)
-		if err := runInitMode(*outputFlag, ignorePatterns); err != nil {
-			fmt.Fprintf(os.Stderr, "Init failed: %v\n", err)
-			os.Exit(1)
+
+		if *configFlag != "" {
+			jobs, err := loadConfig(*configFlag)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Config error: %v\n", err)
+				os.Exit(1)
+			}
+			for _, job := range jobs {
+				ignorePatterns := loadIgnorePatterns(job.Destination, *ignoreFileFlag)
+				fmt.Printf("Initializing job: %s\n", job.Name)
+				if err := runInitMode(job.Destination, ignorePatterns); err != nil {
+					fmt.Fprintf(os.Stderr, "Init failed for job '%s': %v\n", job.Name, err)
+					os.Exit(1)
+				}
+			}
+		} else {
+			ignorePatterns := loadIgnorePatterns(*outputFlag, *ignoreFileFlag)
+			if err := runInitMode(*outputFlag, ignorePatterns); err != nil {
+				fmt.Fprintf(os.Stderr, "Init failed: %v\n", err)
+				os.Exit(1)
+			}
 		}
 		fmt.Println("Initialization complete")
 		return

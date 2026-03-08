@@ -257,7 +257,7 @@ func TestInitModeWithMixedPaths(t *testing.T) {
 	t.Logf("Valid remained, invalid moved to: %s", expectedPath)
 }
 
-func TestInitModeWithoutOutputFlag(t *testing.T) {
+func TestInitModeWithoutOutputOrConfigFlag(t *testing.T) {
 	bin := buildBinary(t)
 	work := t.TempDir()
 
@@ -265,13 +265,152 @@ func TestInitModeWithoutOutputFlag(t *testing.T) {
 	cmd.Dir = work
 	out, err := cmd.CombinedOutput()
 	if err == nil {
-		t.Fatalf("expected command to fail without -output flag")
+		t.Fatalf("expected command to fail without -output or -config flag")
 	}
-	
-	if !strings.Contains(string(out), "-init requires -output") {
-		t.Fatalf("expected error message about missing -output flag, got: %s", string(out))
+
+	if !strings.Contains(string(out), "-init requires -output flag or -config flag") {
+		t.Fatalf("expected error message about missing -output or -config flag, got: %s", string(out))
 	}
-	t.Logf("Correctly rejected -init without -output: %s", string(out))
+	t.Logf("Correctly rejected -init without -output or -config: %s", string(out))
+}
+
+func TestInitModeWithConfig(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	dst := filepath.Join(work, "dst")
+
+	mt := time.Date(2024, 3, 10, 9, 0, 0, 0, time.Local)
+
+	validPath := filepath.Join(dst, "txt", "2024", "03", "10", "hello.txt")
+	if err := os.MkdirAll(filepath.Dir(validPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(validPath, []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(validPath, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+
+	invalidPath := filepath.Join(dst, "misplaced.pdf")
+	if err := os.WriteFile(invalidPath, []byte("pdf data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(invalidPath, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Created valid: %s, invalid: %s", validPath, invalidPath)
+
+	cfgContent := "jobs:\n  - name: initjob\n    source: \"/dev/null\"\n    destination: \"" + dst + "\"\n"
+	cfgPath := filepath.Join(work, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Wrote config: %s", cfgPath)
+
+	runBinary(t, bin, work, "-init", "-config", cfgPath)
+
+	if _, err := os.Stat(validPath); err != nil {
+		t.Fatalf("expected valid file to remain at %s: %v", validPath, err)
+	}
+	t.Logf("Valid file remained: %s", validPath)
+
+	if _, err := os.Stat(invalidPath); err == nil {
+		t.Fatalf("expected misplaced file to be moved from %s", invalidPath)
+	}
+
+	expectedPath := filepath.Join(dst, "pdf", "2024", "03", "10", "misplaced.pdf")
+	if _, err := os.Stat(expectedPath); err != nil {
+		t.Fatalf("expected misplaced file to be moved to %s: %v", expectedPath, err)
+	}
+	t.Logf("Misplaced file moved to: %s", expectedPath)
+}
+
+func TestInitModeWithConfigMultipleJobs(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	dst1 := filepath.Join(work, "archive1")
+	dst2 := filepath.Join(work, "archive2")
+
+	mt := time.Date(2024, 6, 15, 12, 0, 0, 0, time.Local)
+
+	// Place a misplaced file in each destination.
+	for _, dst := range []string{dst1, dst2} {
+		if err := os.MkdirAll(dst, 0755); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dst, "stray.jpg")
+		if err := os.WriteFile(p, []byte("img"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, mt, mt); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("Created stray file: %s", p)
+	}
+
+	cfgContent := "jobs:\n" +
+		"  - name: job1\n    source: \"/dev/null\"\n    destination: \"" + dst1 + "\"\n" +
+		"  - name: job2\n    source: \"/dev/null\"\n    destination: \"" + dst2 + "\"\n"
+	cfgPath := filepath.Join(work, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Wrote config: %s", cfgPath)
+
+	runBinary(t, bin, work, "-init", "-config", cfgPath)
+
+	for _, dst := range []string{dst1, dst2} {
+		stray := filepath.Join(dst, "stray.jpg")
+		if _, err := os.Stat(stray); err == nil {
+			t.Fatalf("expected stray.jpg to be moved in %s", dst)
+		}
+		expected := filepath.Join(dst, "jpg", "2024", "06", "15", "stray.jpg")
+		if _, err := os.Stat(expected); err != nil {
+			t.Fatalf("expected stray.jpg moved to %s: %v", expected, err)
+		}
+		t.Logf("Stray file correctly moved in %s", dst)
+	}
+}
+
+func TestInitModeWithConfigFileMissing(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	missingConfig := filepath.Join(work, "nonexistent.yaml")
+
+	cmd := exec.Command(bin, "-init", "-config", missingConfig)
+	cmd.Dir = work
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected command to fail with missing config file")
+	}
+	t.Logf("Correctly failed with missing config: %s", string(out))
+}
+
+func TestInitModeOutputFlagStillWorks(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	dst := filepath.Join(work, "dst")
+
+	mt := time.Date(2024, 5, 20, 10, 0, 0, 0, time.Local)
+	validPath := filepath.Join(dst, "png", "2024", "05", "20", "img.png")
+	if err := os.MkdirAll(filepath.Dir(validPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(validPath, []byte("pngdata"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(validPath, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Created valid file: %s", validPath)
+
+	runBinary(t, bin, work, "-init", "-output", dst)
+
+	if _, err := os.Stat(validPath); err != nil {
+		t.Fatalf("expected file to remain at valid path: %v", err)
+	}
+	t.Logf("Existing -output behavior still works: %s", validPath)
 }
 
 func TestInitModeWithNonExistentOutput(t *testing.T) {
