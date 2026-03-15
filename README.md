@@ -25,7 +25,7 @@ A small, fast CLI that archives files from a source directory into a structured 
 
 ## Quick start
 - Setup (first time):
-  - ./filearchiver -setup -input /path/to/src -output /path/to/dst
+  - ./filearchiver -setup /conf/config -input /path/to/src -output /path/to/dst
 - One-off run:
   - ./filearchiver -input /path/to/src -output /path/to/dst
 - Using a config file:
@@ -36,7 +36,7 @@ A small, fast CLI that archives files from a source directory into a structured 
   - ./filearchiver -init -config /path/to/config.yaml
 
 ### Flags
-- -setup: setup mode - create directories and blank config/ignore files (see Setup mode below)
+- -setup: setup mode - create config.yaml and .archiveignore at the given path; also creates -input and -output directories if specified (see Setup mode below)
 - -input: source directory for a one-off job
 - -output: destination directory for a one-off job
 - -config: path to YAML config file (batch jobs)
@@ -99,25 +99,26 @@ jobs:
 - Safety: a .filearchiver.lock file prevents concurrent runs; remove it if a previous run crashed
 - Validation: destination cannot be inside source
 
-### Setup mode (-setup)
-Use this mode for first-time setup or to prepare the environment:
+### Setup mode (-setup \<path\>)
+Use this mode for first-time setup or to prepare the environment. The required `<path>` argument is the directory where `config.yaml` and `.archiveignore` are created:
+- Creates `config.yaml` and `.archiveignore` inside the specified path
+- The specified path is created automatically if it does not exist
 - Creates input and output directories if specified with -input and -output flags (if they don't exist)
-- Creates a template config.yaml file in the working directory (or at path specified with -config)
-- Creates a template .archiveignore file in the working directory
+- The -config flag overrides the config file location when an explicit path is preferred
 - Does not overwrite existing files or directories
 - Useful for:
   - First-time setup before running in Docker
-  - Preparing directories and configuration files before customization
+  - Keeping configuration files separate from the working directory
   - Creating volume mount points for Docker containers
   - Setting up the environment to add custom ignore patterns before running -init
 
-Example: ./filearchiver -setup -input /data/input -output /data/output
+Example: ./filearchiver -setup /conf/config -input /data/input -output /data/output
 
 **Docker users:** Run this once to create the volume directories and files, then edit config.yaml and .archiveignore before running your archive jobs:
 ```bash
-docker run --rm -v $(pwd)/data:/data ghcr.io/haepapa/filearchiver:latest -setup -input /data/input -output /data/output
-# Edit $(pwd)/data/config.yaml and $(pwd)/data/.archiveignore as needed
-docker run --rm -v /source:/data/input -v /archive:/data/output -v $(pwd)/data:/data ghcr.io/haepapa/filearchiver:latest -input /data/input -output /data/output
+docker run --rm --user "$(id -u):$(id -g)" -v $(pwd)/config:/config ghcr.io/haepapa/filearchiver:latest -setup /config -input /data/input -output /data/output
+# Edit $(pwd)/config/config.yaml and $(pwd)/config/.archiveignore as needed
+docker run --rm --user "$(id -u):$(id -g)" -v /source:/data/input -v /archive:/data/output -v $(pwd)/config:/config ghcr.io/haepapa/filearchiver:latest -input /data/input -output /data/output
 ```
 
 ### Initialize mode (-init)
@@ -149,19 +150,81 @@ go test -v ./...
 ```
 Tests the application logic directly by building and running the binary. Fast and runs everywhere.
 
+#### Go test list
+| Test name | What it covers |
+|---|---|
+| TestOneOffRun | Archives files with `-input`/`-output`; source emptied, files in correct paths |
+| TestRunUsingConfig | Archives files via `-config` YAML; source emptied, files archived |
+| TestRunWithIgnore | Local `.archiveignore` in source prevents ignored files being archived |
+| TestInitModeWithValidPaths | `-init -output`: files already in valid paths are registered and left in place |
+| TestInitModeWithInvalidPaths | `-init -output`: files at invalid paths are moved to correct location |
+| TestInitModeWithMixedPaths | `-init -output`: valid files stay, invalid files are reorganised |
+| TestInitModeWithoutOutputOrConfigFlag | `-init` without `-output` or `-config` exits with correct error message |
+| TestInitModeWithConfig | `-init -config`: destinations from config file are initialised |
+| TestInitModeWithConfigMultipleJobs | `-init -config`: multiple job destinations each initialised |
+| TestInitModeWithConfigFileMissing | `-init -config` with missing file exits with error |
+| TestInitModeOutputFlagStillWorks | `-init -output` still works after config-based init was added |
+| TestInitModeWithNonExistentOutput | `-init -output` with non-existent directory exits with error |
+| TestInitModeSkipsDuplicatesFolder | Files inside `_duplicates` are moved to valid paths during init |
+| TestInitModeDoesNotAffectNormalOperation | Normal archive runs correctly after init has been used |
+| TestInitModeBackupsExistingDatabase | Existing database is backed up with timestamp before init recreates it |
+| TestInitModeProcessesDuplicatesFirst | `_duplicates` files are processed before regular files to allow correct collision handling |
+| TestInitModeHandlesMultipleDuplicateCollisions | Multiple duplicate files receive correct `_01`, `_02`… suffixes |
+| TestInitModeHonorsIgnoreFile | `-ignorefile` patterns respected during init; ignored files are left untouched |
+| TestSetupModeCreatesDirectories | `-setup . -input … -output …` creates input and output directories |
+| TestSetupModeCreatesConfigFile | `-setup .` creates `config.yaml` in the setup path |
+| TestSetupModeCreatesIgnoreFile | `-setup .` creates `.archiveignore` in the setup path |
+| TestSetupModeWithCustomConfigPath | `-setup . -config /path` writes config to the explicit path |
+| TestSetupModeDoesNotOverwriteExisting | Existing `config.yaml` and `.archiveignore` are never overwritten |
+| TestSetupModeDoesNotImpactNormalOperation | Normal archive run works correctly after setup |
+| TestSetupModeCreatesFilesInSpecifiedPath | `-setup /conf/config` writes both files inside that directory |
+| TestSetupModeCreatesSetupDirectory | Setup path is auto-created when it does not exist |
+| TestSetupModePathDoesNotWriteToWorkingDir | When a path is given, files are not written to the working directory |
+| TestSetupModePathWithExplicitConfig | `-setup /path -config /other` writes config to explicit path; ignore to setup path |
+
 ### Docker Tests (Container Integration)
 ```bash
 ./scripts/test-docker.sh
 ```
-Tests the Docker image build and all functionality in containerized mode:
-- Image builds successfully
-- Help command works
-- One-off archive mode
-- Init mode with database handling
-- Config-based multi-job mode
-- Volume persistence
+Tests the Docker image build and all functionality in containerised mode, following the natural user workflow (setup → archive → init).
 
-**Requirements:** Docker must be running. Tests are automated in CI/CD.
+**Requirements:** Docker must be running.
+
+#### Docker test list
+| Test | What it covers |
+|---|---|
+| Infrastructure | Docker daemon available; image builds successfully |
+| Test 1 | Help command outputs usage text |
+| Test 2a | `-setup /path` creates `config.yaml` inside the specified directory |
+| Test 2b | `-setup /path` creates `.archiveignore` inside the specified directory |
+| Test 2c | `-setup /path` does not write files to the container working directory |
+| Test 3a | `-setup /path -input …` creates the input directory |
+| Test 3b | `-setup /path -output …` creates the output directory |
+| Test 4a | Setup does not overwrite an existing `config.yaml` |
+| Test 4b | Setup does not overwrite an existing `.archiveignore` |
+| Test 5a | One-off archive (`-input`/`-output`): source directory emptied |
+| Test 5b | One-off archive: all files present in archive |
+| Test 5c | One-off archive: database created in `/config` volume |
+| Test 5d | One-off archive: files organised under `extension/YYYY/MM/DD/` structure |
+| Test 6a | `-ignorefile`: non-ignored file is archived |
+| Test 6b | `-ignorefile`: ignored (`.tmp`) file remains in source |
+| Test 7a | Local `.archiveignore` in source: non-ignored file is archived |
+| Test 7b | Local `.archiveignore` in source: ignored file remains |
+| Test 8a | Config mode (multi-job): both source directories emptied |
+| Test 8b | Config mode: files from all jobs present in archive |
+| Test 8c | Config mode: database created |
+| Test 9 | Collision handling: original file kept, duplicate moved to `_duplicates` |
+| Test 10a | `-init -output`: file already in valid path is left in place |
+| Test 10b | `-init -output`: misplaced file is reorganised |
+| Test 10c | `-init -output`: database created |
+| Test 11a | Init backs up existing database with timestamp suffix |
+| Test 11b | Init creates a fresh database after backup |
+| Test 12a | `-init -config`: stray file in first destination reorganised |
+| Test 12b | `-init -config`: stray file in second destination reorganised |
+| Test 13 | `-init` without `-output` or `-config` exits with correct error message |
+| Test 14 | Database files persist on the host volume across container runs |
+
+
 
 ## Building cross-platform
 - Examples:
@@ -196,36 +259,35 @@ Images are signed with cosign for security.
 # Pull the latest image
 docker pull ghcr.io/haepapa/filearchiver:latest
 
-# First-time setup: Create directories and template files
-docker run --rm \
-  -v $(pwd)/data:/data \
+# First-time setup: create /config directory and template files
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v $(pwd)/config:/config \
   ghcr.io/haepapa/filearchiver:latest \
-  -setup -input /data/input -output /data/output
+  -setup /config -input /data/input -output /data/output
 
-# Edit config.yaml and .archiveignore in $(pwd)/data/ as needed
+# Edit config.yaml and .archiveignore in $(pwd)/config/ as needed
 
 # Run a one-off archive job (source will be moved to archive)
-docker run --rm \
+docker run --rm --user "$(id -u):$(id -g)" \
   -v /path/to/source:/data/input \
   -v /path/to/archive:/data/output \
-  -v $(pwd)/data:/data \
+  -v $(pwd)/config:/config \
   ghcr.io/haepapa/filearchiver:latest \
   -input /data/input -output /data/output
 
 # Initialize existing archive
-docker run --rm \
+docker run --rm --user "$(id -u):$(id -g)" \
   -v /path/to/archive:/data/output \
-  -v $(pwd)/data:/data \
+  -v $(pwd)/config:/config \
   ghcr.io/haepapa/filearchiver:latest \
   -init -output /data/output
 
-# With config file
-docker run --rm \
-  -v /path/to/config:/config:ro \
+# With config file (config.yaml lives in the /config volume)
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v $(pwd)/config:/config \
   -v /path/to/source1:/data/source1 \
   -v /path/to/source2:/data/source2 \
   -v /path/to/archive:/data/archive \
-  -v $(pwd)/data:/data \
   ghcr.io/haepapa/filearchiver:latest \
   -config /config/config.yaml
 ```
@@ -245,15 +307,14 @@ docker-compose up
 ### Volume Mounts
 - `/data/input` - Source directory for archiving (files will be moved, not copied)
 - `/data/output` - Destination/archive directory
-- `/config` - Mount config directory here for YAML files (use `/config/config.yaml`)
-- `/data` - Persistent volume for database (filearchiver.db) and lock files
+- `/config` - **Persistent volume** for the database (`filearchiver.db`), lock file (`.filearchiver.lock`), config file (`config.yaml`), and ignore file (`.archiveignore`). Mount as read-write.
 - Mount any custom source/destination paths as needed for your use case
 
 ### Important Notes
 - **Files are moved, not copied** - Source files are deleted after successful archiving
 - Mount source as read-write unless using init mode
-- Database persists in the `/data` volume between runs
-- Config files should be mounted in `/config` directory (not `/data/config`)
+- Database and config files persist in the `/config` volume between runs
+- **User permissions**: The container runs as a non-root user (`archiver`, UID 100). When using bind mounts, run the container with `--user "$(id -u):$(id -g)"` (or `user: "${UID:-1000}:${GID:-1000}"` in docker-compose) so the container writes files owned by your host user
 
 ### Building Your Own Image
 ```bash
