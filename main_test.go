@@ -652,7 +652,7 @@ func TestSetupModeCreatesDirectories(t *testing.T) {
 	src := filepath.Join(work, "newsrc")
 	dst := filepath.Join(work, "newdst")
 
-	cmd := exec.Command(bin, "-setup", "-input", src, "-output", dst)
+	cmd := exec.Command(bin, "-setup", ".", "-input", src, "-output", dst)
 	cmd.Dir = work
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -675,7 +675,7 @@ func TestSetupModeCreatesConfigFile(t *testing.T) {
 	bin := buildBinary(t)
 	work := t.TempDir()
 
-	cmd := exec.Command(bin, "-setup")
+	cmd := exec.Command(bin, "-setup", ".")
 	cmd.Dir = work
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -700,7 +700,7 @@ func TestSetupModeCreatesIgnoreFile(t *testing.T) {
 	bin := buildBinary(t)
 	work := t.TempDir()
 
-	cmd := exec.Command(bin, "-setup")
+	cmd := exec.Command(bin, "-setup", ".")
 	cmd.Dir = work
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -729,7 +729,7 @@ func TestSetupModeWithCustomConfigPath(t *testing.T) {
 	
 	customConfigPath := filepath.Join(configDir, "myconfig.yaml")
 
-	cmd := exec.Command(bin, "-setup", "-config", customConfigPath)
+	cmd := exec.Command(bin, "-setup", ".", "-config", customConfigPath)
 	cmd.Dir = work
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -762,7 +762,7 @@ func TestSetupModeDoesNotOverwriteExisting(t *testing.T) {
 	originalIgnore := "# original ignore\n*.bak"
 	if err := os.WriteFile(ignorePath, []byte(originalIgnore), 0644); err != nil { t.Fatal(err) }
 
-	cmd := exec.Command(bin, "-setup", "-input", src)
+	cmd := exec.Command(bin, "-setup", ".", "-input", src)
 	cmd.Dir = work
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -795,7 +795,7 @@ func TestSetupModeDoesNotImpactNormalOperation(t *testing.T) {
 	src := filepath.Join(work, "src")
 	dst := filepath.Join(work, "dst")
 
-	cmd := exec.Command(bin, "-setup", "-input", src, "-output", dst)
+	cmd := exec.Command(bin, "-setup", ".", "-input", src, "-output", dst)
 	cmd.Dir = work
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -813,5 +813,124 @@ func TestSetupModeDoesNotImpactNormalOperation(t *testing.T) {
 	}
 	expectMoved(t, dst, f, mt)
 	t.Logf("Normal operation works after setup")
+}
+
+func TestSetupModeCreatesFilesInSpecifiedPath(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	setupDir := filepath.Join(work, "conf", "config")
+
+	cmd := exec.Command(bin, "-setup", setupDir)
+	cmd.Dir = work
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("setup command failed: %v\n%s", err, string(out))
+	}
+	t.Logf("Setup output: %s", string(out))
+
+	configPath := filepath.Join(setupDir, "config.yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("expected config file at %s: %v", configPath, err)
+	}
+	if !strings.Contains(string(data), "jobs:") {
+		t.Fatalf("expected config file to contain 'jobs:', got: %s", string(data))
+	}
+	t.Logf("Config file created at specified path: %s", configPath)
+
+	ignorePath := filepath.Join(setupDir, ".archiveignore")
+	ignoreData, err := os.ReadFile(ignorePath)
+	if err != nil {
+		t.Fatalf("expected ignore file at %s: %v", ignorePath, err)
+	}
+	if !strings.Contains(string(ignoreData), "ignore patterns") {
+		t.Fatalf("expected ignore file template text, got: %s", string(ignoreData))
+	}
+	t.Logf("Ignore file created at specified path: %s", ignorePath)
+}
+
+func TestSetupModeCreatesSetupDirectory(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	setupDir := filepath.Join(work, "new", "nested", "dir")
+
+	if _, err := os.Stat(setupDir); err == nil {
+		t.Fatalf("setup dir should not exist before test")
+	}
+
+	cmd := exec.Command(bin, "-setup", setupDir)
+	cmd.Dir = work
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("setup command failed: %v\n%s", err, string(out))
+	}
+	t.Logf("Setup output: %s", string(out))
+
+	if _, err := os.Stat(setupDir); os.IsNotExist(err) {
+		t.Fatalf("expected setup directory to be created: %v", err)
+	}
+	t.Logf("Setup directory auto-created: %s", setupDir)
+
+	if _, err := os.Stat(filepath.Join(setupDir, "config.yaml")); err != nil {
+		t.Fatalf("expected config.yaml inside created directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(setupDir, ".archiveignore")); err != nil {
+		t.Fatalf("expected .archiveignore inside created directory: %v", err)
+	}
+}
+
+func TestSetupModePathDoesNotWriteToWorkingDir(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	setupDir := filepath.Join(work, "conf")
+
+	cmd := exec.Command(bin, "-setup", setupDir)
+	cmd.Dir = work
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("setup command failed: %v\n%s", err, string(out))
+	}
+	t.Logf("Setup output: %s", string(out))
+
+	// config and ignore must NOT be in the working directory
+	if _, err := os.Stat(filepath.Join(work, "config.yaml")); err == nil {
+		t.Fatalf("config.yaml should not be created in working directory when setup path is given")
+	}
+	if _, err := os.Stat(filepath.Join(work, ".archiveignore")); err == nil {
+		t.Fatalf(".archiveignore should not be created in working directory when setup path is given")
+	}
+	t.Logf("Correctly wrote files only to setup path, not working dir")
+}
+
+func TestSetupModePathWithExplicitConfig(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	setupDir := filepath.Join(work, "conf")
+	customConfigDir := filepath.Join(work, "other")
+	if err := os.MkdirAll(customConfigDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	customConfigPath := filepath.Join(customConfigDir, "myconfig.yaml")
+
+	cmd := exec.Command(bin, "-setup", setupDir, "-config", customConfigPath)
+	cmd.Dir = work
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("setup command failed: %v\n%s", err, string(out))
+	}
+	t.Logf("Setup output: %s", string(out))
+
+	// -config overrides config file location
+	if _, err := os.ReadFile(customConfigPath); err != nil {
+		t.Fatalf("expected config file at explicit -config path %s: %v", customConfigPath, err)
+	}
+	t.Logf("Config written to explicit -config path: %s", customConfigPath)
+
+	// .archiveignore still goes under setupDir
+	ignorePath := filepath.Join(setupDir, ".archiveignore")
+	if _, err := os.ReadFile(ignorePath); err != nil {
+		t.Fatalf("expected .archiveignore at setup path %s: %v", ignorePath, err)
+	}
+	t.Logf("Ignore file written to setup path: %s", ignorePath)
 }
 
