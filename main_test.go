@@ -597,6 +597,78 @@ func TestInitModeHandlesMultipleDuplicateCollisions(t *testing.T) {
 	}
 }
 
+// TestInitModePreservesExistingDuplicates verifies that files already sitting in
+// _duplicates/<ext>/<YYYY>/<MM>/<DD>/ that are genuine duplicates of a main-archive
+// file are registered in place and NOT moved again.
+func TestInitModePreservesExistingDuplicates(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	dst := filepath.Join(work, "dst")
+
+	mt := time.Date(2024, 3, 5, 9, 0, 0, 0, time.Local)
+
+	// Main archive file.
+	originalPath := filepath.Join(dst, "pdf", "2024", "03", "05", "report.pdf")
+	if err := os.MkdirAll(filepath.Dir(originalPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(originalPath, []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(originalPath, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+
+	// Correctly-structured duplicate (same name as original in _duplicates).
+	dup1Path := filepath.Join(dst, "_duplicates", "pdf", "2024", "03", "05", "report.pdf")
+	if err := os.MkdirAll(filepath.Dir(dup1Path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dup1Path, []byte("dup1"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(dup1Path, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+
+	// Correctly-structured duplicate with _01 collision suffix.
+	dup2Path := filepath.Join(dst, "_duplicates", "pdf", "2024", "03", "05", "report_01.pdf")
+	if err := os.MkdirAll(filepath.Dir(dup2Path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dup2Path, []byte("dup2"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(dup2Path, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("Created original: %s, dup1: %s, dup2: %s", originalPath, dup1Path, dup2Path)
+
+	runBinary(t, bin, work, "-init", "-output", dst)
+
+	// Original must stay put.
+	if _, err := os.Stat(originalPath); err != nil {
+		t.Fatalf("expected original file to remain at %s: %v", originalPath, err)
+	}
+
+	// Both duplicates must remain in _duplicates — not moved elsewhere.
+	if _, err := os.Stat(dup1Path); err != nil {
+		t.Fatalf("expected dup1 to remain in _duplicates at %s: %v", dup1Path, err)
+	}
+	if _, err := os.Stat(dup2Path); err != nil {
+		t.Fatalf("expected dup2 to remain in _duplicates at %s: %v", dup2Path, err)
+	}
+
+	// Ensure they were not also copied to an incorrect main-path location.
+	wrongPath := filepath.Join(dst, "pdf", "2024", "03", "05", "report_01.pdf")
+	if _, err := os.Stat(wrongPath); err == nil {
+		t.Fatalf("dup2 should NOT have been moved to main path %s", wrongPath)
+	}
+
+	t.Logf("Existing duplicates correctly preserved in _duplicates")
+}
+
 func TestInitModeHonorsIgnoreFile(t *testing.T) {
 	bin := buildBinary(t)
 	work := t.TempDir()

@@ -507,6 +507,12 @@ func runInitMode(outputDir string, ignorePatterns []string) error {
 			} else {
 				fmt.Printf("  [REGISTERED] %s\n", path)
 			}
+		} else if isInDuplicates && isExistingDuplicateFile(relPath, absOutput) {
+			if err := registerExistingFile(path, info); err != nil {
+				fmt.Fprintf(os.Stderr, "  [FAILED] Register %s: %v\n", path, err)
+			} else {
+				fmt.Printf("  [REGISTERED] %s (duplicate)\n", path)
+			}
 		} else {
 			newPath, err := moveToValidPath(path, info, absOutput)
 			if err != nil {
@@ -587,6 +593,41 @@ func isValidArchivedPath(relPath string) bool {
 	}
 
 	return true
+}
+
+// isExistingDuplicateFile reports whether a file already inside _duplicates is a genuine
+// duplicate of a file that exists in the main archive. relPath is relative to absOutput.
+// It returns true when the relative path within _duplicates is a valid archived structure
+// and the corresponding original file (with any _NN collision suffix removed) is present
+// in the main archive, so the file should be registered in place rather than re-moved.
+func isExistingDuplicateFile(relPath string, absOutput string) bool {
+	dupPrefix := "_duplicates" + string(filepath.Separator)
+	if !strings.HasPrefix(relPath, dupPrefix) {
+		return false
+	}
+	relWithinDup := strings.TrimPrefix(relPath, dupPrefix)
+
+	if !isValidArchivedPath(relWithinDup) {
+		return false
+	}
+
+	dir := filepath.Dir(relWithinDup)
+	filename := filepath.Base(relWithinDup)
+	fileExt := filepath.Ext(filename)
+	baseName := strings.TrimSuffix(filename, fileExt)
+
+	// Strip a _NN collision suffix (exactly underscore + two digits) if present.
+	originalBase := baseName
+	if len(baseName) >= 3 {
+		s := baseName[len(baseName)-3:]
+		if s[0] == '_' && s[1] >= '0' && s[1] <= '9' && s[2] >= '0' && s[2] <= '9' {
+			originalBase = baseName[:len(baseName)-3]
+		}
+	}
+
+	originalPath := filepath.Join(absOutput, dir, originalBase+fileExt)
+	_, err := os.Stat(originalPath)
+	return err == nil
 }
 
 func registerExistingFile(path string, info os.FileInfo) error {
