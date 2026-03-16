@@ -598,8 +598,12 @@ func isValidArchivedPath(relPath string) bool {
 // isExistingDuplicateFile reports whether a file already inside _duplicates is a genuine
 // duplicate of a file that exists in the main archive. relPath is relative to absOutput.
 // It returns true when the relative path within _duplicates is a valid archived structure
-// and the corresponding original file (with any _NN collision suffix removed) is present
+// and the corresponding original file (with any collision suffix removed) is present
 // in the main archive, so the file should be registered in place rather than re-moved.
+//
+// Two collision suffix formats are recognised:
+//   - _dNNNN  (underscore + 'd' + one or more digits, e.g. _d0001)
+//   - _NN     (exactly underscore + two digits, e.g. _01)
 func isExistingDuplicateFile(relPath string, absOutput string) bool {
 	dupPrefix := "_duplicates" + string(filepath.Separator)
 	if !strings.HasPrefix(relPath, dupPrefix) {
@@ -616,9 +620,26 @@ func isExistingDuplicateFile(relPath string, absOutput string) bool {
 	fileExt := filepath.Ext(filename)
 	baseName := strings.TrimSuffix(filename, fileExt)
 
-	// Strip a _NN collision suffix (exactly underscore + two digits) if present.
+	// Strip a collision suffix if present.
 	originalBase := baseName
-	if len(baseName) >= 3 {
+
+	// Try _dNNNN format first (e.g. _d0001, _d0042).
+	if idx := strings.LastIndex(baseName, "_d"); idx >= 0 && idx < len(baseName)-2 {
+		rest := baseName[idx+2:]
+		allDigits := true
+		for _, c := range rest {
+			if c < '0' || c > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			originalBase = baseName[:idx]
+		}
+	}
+
+	// Fall back to _NN format (exactly underscore + two digits, e.g. _01).
+	if originalBase == baseName && len(baseName) >= 3 {
 		s := baseName[len(baseName)-3:]
 		if s[0] == '_' && s[1] >= '0' && s[1] <= '9' && s[2] >= '0' && s[2] <= '9' {
 			originalBase = baseName[:len(baseName)-3]

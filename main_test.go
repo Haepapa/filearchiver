@@ -669,6 +669,55 @@ func TestInitModePreservesExistingDuplicates(t *testing.T) {
 	t.Logf("Existing duplicates correctly preserved in _duplicates")
 }
 
+// TestInitModePreservesExistingDuplicatesWithDSuffix verifies that files in _duplicates
+// that use the _dNNNN suffix format (e.g. report_d0001.pdf) are recognised as genuine
+// duplicates of the corresponding main-archive file and are NOT moved.
+func TestInitModePreservesExistingDuplicatesWithDSuffix(t *testing.T) {
+	bin := buildBinary(t)
+	work := t.TempDir()
+	dst := filepath.Join(work, "dst")
+
+	mt := time.Date(2023, 1, 2, 10, 0, 0, 0, time.Local)
+
+	// Main archive file.
+	originalPath := filepath.Join(dst, "crm", "2023", "01", "02", "20221231 - NewYear2022 - part 45.CRM")
+	if err := os.MkdirAll(filepath.Dir(originalPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(originalPath, []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(originalPath, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+
+	// Duplicate with _d0001 suffix already sitting inside _duplicates.
+	dupPath := filepath.Join(dst, "_duplicates", "crm", "2023", "01", "02", "20221231 - NewYear2022 - part 45_d0001.CRM")
+	if err := os.MkdirAll(filepath.Dir(dupPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dupPath, []byte("duplicate"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(dupPath, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+
+	runBinary(t, bin, work, "-init", "-output", dst)
+
+	// Original must stay put.
+	if _, err := os.Stat(originalPath); err != nil {
+		t.Fatalf("expected original to remain at %s: %v", originalPath, err)
+	}
+
+	// Duplicate must remain in _duplicates — not moved elsewhere.
+	if _, err := os.Stat(dupPath); err != nil {
+		t.Fatalf("expected _d0001 duplicate to remain at %s: %v", dupPath, err)
+	}
+
+	t.Logf("_d#### duplicate correctly preserved in _duplicates")
+}
+
 func TestInitModeHonorsIgnoreFile(t *testing.T) {
 	bin := buildBinary(t)
 	work := t.TempDir()
