@@ -13,6 +13,7 @@ import (
 // Config holds the dependencies injected into all API handlers.
 type Config struct {
 	DB          *sql.DB
+	DBPath      string
 	ArchiveRoot string
 	Readonly    bool
 	ThumbDir    string
@@ -36,6 +37,7 @@ func NewRouter(cfg Config) http.Handler {
 		r.Use(jsonContentType)
 
 		r.Get("/stats", handleGetStats(cfg))
+		r.Get("/settings", handleGetSettings(cfg))
 
 		r.Route("/files", func(r chi.Router) {
 			r.Get("/", handleListFiles(cfg))

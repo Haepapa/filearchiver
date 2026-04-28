@@ -48,6 +48,7 @@ func main() {
 
 	cfg := api.Config{
 		DB:          database,
+		DBPath:      *dbPath,
 		ArchiveRoot: *archivePath,
 		Readonly:    *readonly,
 		ThumbDir:    *thumbDir,

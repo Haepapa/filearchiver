@@ -321,3 +321,98 @@ docker-compose up
 docker build -t filearchiver:custom .
 docker run --rm filearchiver:custom --help
 ```
+
+---
+
+## Web UI (`filearchiver-web`)
+
+`filearchiver-web` is a companion web server that sits on top of the `filearchiver.db` database and provides a browser-based interface for browsing, searching, tagging, and managing your archive.
+
+### Features
+- **Dashboard** — archive statistics and recent activity
+- **Files browser** — grid/list view with sidebar navigation by type, date, and tag; full-text search with filter chips
+- **Search** — dedicated search page with filter sidebar (type, tag, date range, duplicates), result highlighting, and bookmarkable URL state
+- **Media viewer** — stream images, video, audio, PDF, and text files directly in the browser; keyboard navigation; per-file tag editor; archive history tab
+- **Tags** — create tag categories and tags; tag files; merge tags; full tag management UI
+- **Duplicates** — side-by-side comparison of duplicate files; delete, promote, or keep both; bulk-delete identical duplicates
+- **History** — full archive log with filters for status, job name, message content, and date range
+- **Settings** — view server configuration, archive statistics, and server mode
+
+### Quick start (local binary)
+
+```bash
+# Build the web binary
+go build -o filearchiver-web ./cmd/web/
+
+# Run (point at your existing database and archive root)
+./filearchiver-web \
+  -db     /path/to/filearchiver.db \
+  -archive /path/to/archive/root \
+  -port   8080
+
+# Open in browser
+open http://localhost:8080
+```
+
+### CLI flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-db` | (required) | Path to `filearchiver.db` |
+| `-archive` | (required) | Root path of the archive directory (for file serving) |
+| `-port` | `8080` | HTTP port to listen on |
+| `-host` | `0.0.0.0` | Bind address |
+| `-readonly` | `false` | Disable all write/delete operations |
+| `-thumbdir` | `<db_dir>/.thumbcache` | Directory to cache generated thumbnails |
+
+### Docker
+
+```bash
+# Pull the image
+docker pull ghcr.io/haepapa/filearchiver-web:latest
+
+# Run
+docker run -d \
+  -p 8080:8080 \
+  -v /path/to/filearchiver.db:/data/db/filearchiver.db \
+  -v /path/to/archive:/data/archive \
+  ghcr.io/haepapa/filearchiver-web:latest
+
+# Open http://localhost:8080
+```
+
+### Docker Compose (with CLI archiver)
+
+See `docker-compose.example.yml` for a complete example that runs both the archiver and the web UI together.
+
+```bash
+cp docker-compose.example.yml docker-compose.yml
+# Edit /path/to/archive and other settings
+nano docker-compose.yml
+docker-compose up -d filearchiver-web
+# open http://localhost:8080
+```
+
+### Security
+
+The web UI has **no authentication** by default — it is intended for local or trusted-network use.
+
+For public-facing deployments, place it behind a reverse proxy with basic auth:
+
+```nginx
+# nginx example
+location / {
+    auth_basic "Archive";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+    proxy_pass http://localhost:8080;
+}
+```
+
+Use `-readonly` to disable all write and delete operations when you want a read-only view shared with others.
+
+### Building your own image
+
+```bash
+docker build -f Dockerfile.web -t filearchiver-web:custom .
+docker run --rm filearchiver-web:custom --help
+```

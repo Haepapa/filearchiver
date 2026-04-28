@@ -15,12 +15,13 @@ func handleListHistory(cfg Config) http.HandlerFunc {
 		perPage, _ := strconv.Atoi(q.Get("per_page"))
 
 		params := db.HistoryListParams{
-			JobName: q.Get("job"),
-			Status:  q.Get("status"),
-			From:    q.Get("from"),
-			To:      q.Get("to"),
-			Page:    page,
-			PerPage: perPage,
+			JobName:       q.Get("job"),
+			Status:        q.Get("status"),
+			From:          q.Get("from"),
+			To:            q.Get("to"),
+			MessageSearch: q.Get("message"),
+			Page:          page,
+			PerPage:       perPage,
 		}
 
 		result, err := db.ListHistory(cfg.DB, params)

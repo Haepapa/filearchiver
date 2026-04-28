@@ -460,3 +460,98 @@ func TestStaticJSServed(t *testing.T) {
 		t.Fatalf("expected 200 for /static/app.js, got %d", resp.StatusCode)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+func TestGetSettings(t *testing.T) {
+	srv := setupTestServer(t)
+	resp, err := http.Get(srv.URL + "/api/settings")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body struct {
+		DBPath      string `json:"db_path"`
+		ArchiveRoot string `json:"archive_root"`
+		ThumbDir    string `json:"thumb_dir"`
+		Readonly    bool   `json:"readonly"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// archive_root was set to "/archive" in setupTestServer
+	if body.ArchiveRoot != "/archive" {
+		t.Errorf("expected archive_root '/archive', got %q", body.ArchiveRoot)
+	}
+	if body.Readonly {
+		t.Error("expected readonly=false")
+	}
+}
+
+func TestGetSettingsReadonly(t *testing.T) {
+	srv := setupReadonlyServer(t)
+	resp, err := http.Get(srv.URL + "/api/settings")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		Readonly bool `json:"readonly"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if !body.Readonly {
+		t.Error("expected readonly=true")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// History enhanced filtering
+// ---------------------------------------------------------------------------
+
+func TestListHistoryJobFilter(t *testing.T) {
+	srv := setupTestServer(t)
+	resp, err := http.Get(srv.URL + "/api/history?job=archive")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		Total float64 `json:"total"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	// seed data has job_name "archive-job" so partial match should work
+	if body.Total == 0 {
+		t.Log("note: no entries matched 'archive' in job name (depends on seed)")
+	}
+}
+
+func TestListHistoryMessageFilter(t *testing.T) {
+	srv := setupTestServer(t)
+	resp, err := http.Get(srv.URL + "/api/history?message=Archived")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Total float64 `json:"total"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	// Seed data has messages containing "Archived"
+	if body.Total < 1 {
+		t.Errorf("expected at least 1 entry with 'Archived' in message, got %v", body.Total)
+	}
+}

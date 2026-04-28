@@ -529,3 +529,65 @@ func TestListHistoryFilterByJob(t *testing.T) {
 		t.Errorf("expected 2 job2 entries, got %d", result.Total)
 	}
 }
+
+func TestListHistoryFilterByJobPartialMatch(t *testing.T) {
+	database := setupDB(t)
+	seedHistory(t, database)
+	if err := db.Migrate(database); err != nil {
+		t.Fatal(err)
+	}
+
+	// "job" should match both job1 and job2 (LIKE search)
+	result, err := db.ListHistory(database, db.HistoryListParams{JobName: "job"})
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if result.Total != 4 {
+		t.Errorf("expected 4 entries matching 'job', got %d", result.Total)
+	}
+}
+
+func TestListHistoryFilterByMessage(t *testing.T) {
+	database := setupDB(t)
+	seedHistory(t, database)
+	if err := db.Migrate(database); err != nil {
+		t.Fatal(err)
+	}
+
+	// "Archived" appears in 2 entries
+	result, err := db.ListHistory(database, db.HistoryListParams{MessageSearch: "Archived"})
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if result.Total != 2 {
+		t.Errorf("expected 2 entries with 'Archived' in message, got %d", result.Total)
+	}
+}
+
+func TestListHistoryFilterByDateRange(t *testing.T) {
+	database := setupDB(t)
+	if err := db.Migrate(database); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert entries with explicit timestamps
+	_, err := database.Exec(`
+		INSERT INTO history (timestamp, job_name, status, message) VALUES
+		('2023-01-15 10:00:00', 'job1', 'SUCCESS', 'old entry'),
+		('2024-06-01 10:00:00', 'job1', 'SUCCESS', 'recent entry')
+	`)
+	if err != nil {
+		t.Fatalf("seed history: %v", err)
+	}
+
+	result, err := db.ListHistory(database, db.HistoryListParams{
+		From: "2024-01-01",
+		To:   "2024-12-31",
+	})
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if result.Total != 1 {
+		t.Errorf("expected 1 entry in 2024, got %d", result.Total)
+	}
+}

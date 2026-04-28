@@ -32,7 +32,7 @@
       <span class="text-lg font-semibold tracking-tight">filearchiver</span>
     </div>
     <nav class="flex gap-1">
-      <template x-for="[id, label] in [['dashboard','Dashboard'],['files','Files'],['duplicates','Duplicates'],['tags','Tags'],['history','History']]" :key="id">
+      <template x-for="[id, label] in [['dashboard','Dashboard'],['files','Files'],['search','Search'],['duplicates','Duplicates'],['tags','Tags'],['history','History'],['settings','Settings']]" :key="id">
         <button @click="page = id"
           :class="page === id ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
           class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -467,7 +467,7 @@
 
       <!-- ════════════════ HISTORY ════════════════ -->
       <div x-show="page === 'history'" class="p-6 max-w-6xl mx-auto">
-        <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center justify-between mb-4">
           <h1 class="text-2xl font-bold">Archive History</h1>
           <!-- Status filter -->
           <select x-model="historyStatusFilter"
@@ -477,6 +477,20 @@
             <option value="FAILED">Failed</option>
             <option value="SKIPPED">Skipped</option>
           </select>
+        </div>
+
+        <!-- Additional filters row -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <input type="text" x-model.debounce.400ms="historyJobFilter"
+            placeholder="Job name…"
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <input type="text" x-model.debounce.400ms="historyMessageFilter"
+            placeholder="Message contains…"
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <input type="date" x-model="historyFromDate" title="From date"
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <input type="date" x-model="historyToDate" title="To date"
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
 
         <!-- Summary bar -->
@@ -833,6 +847,261 @@
           </template>
         </div><!-- end groups -->
       </div><!-- end duplicates page -->
+
+      <!-- ══════════════════════════════════════════════════════════════
+           SEARCH PAGE
+           ══════════════════════════════════════════════════════════════ -->
+      <div x-show="page === 'search'" class="flex flex-1 overflow-hidden">
+
+        <!-- Filter sidebar -->
+        <aside class="w-56 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0 py-4 px-3">
+          <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Filters</h2>
+
+          <!-- Extension -->
+          <div class="mb-4">
+            <p class="text-xs text-gray-500 mb-1.5">File type</p>
+            <div class="flex flex-wrap gap-1">
+              <template x-for="ext in searchAvailableExts" :key="ext">
+                <button @click="searchExt = searchExt === ext ? '' : ext"
+                  class="px-2 py-0.5 rounded text-xs font-medium transition-colors"
+                  :class="searchExt === ext
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+                  x-text="ext.toUpperCase()">
+                </button>
+              </template>
+            </div>
+            <input type="text" x-model="searchExt" placeholder="or type ext…"
+              class="mt-1.5 w-full border border-gray-200 rounded px-2 py-1 text-xs" />
+          </div>
+
+          <!-- Tag filter -->
+          <div class="mb-4">
+            <p class="text-xs text-gray-500 mb-1.5">Tag</p>
+            <input type="text" x-model="searchTag" placeholder="Tag name…"
+              class="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
+          </div>
+
+          <!-- Date range -->
+          <div class="mb-4">
+            <p class="text-xs text-gray-500 mb-1.5">Modified after</p>
+            <input type="date" x-model="searchFrom"
+              class="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
+            <p class="text-xs text-gray-500 mt-2 mb-1.5">Modified before</p>
+            <input type="date" x-model="searchTo"
+              class="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
+          </div>
+
+          <!-- Duplicates toggle -->
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="searchDups" x-model="searchDuplicatesOnly" class="rounded" />
+            <label for="searchDups" class="text-xs text-gray-600">Duplicates only</label>
+          </div>
+
+          <!-- Clear filters -->
+          <button @click="clearSearchFilters()"
+            class="mt-4 w-full px-3 py-1.5 rounded border border-gray-300 text-xs text-gray-600 hover:bg-gray-100 transition-colors">
+            Clear filters
+          </button>
+        </aside>
+
+        <!-- Results pane -->
+        <div class="flex-1 overflow-y-auto p-6">
+          <!-- Search box -->
+          <div class="mb-6">
+            <div class="relative max-w-2xl">
+              <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+              </svg>
+              <input type="search" x-model.debounce.400ms="searchQuery"
+                placeholder="Search files by name, path…"
+                class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm" />
+            </div>
+            <p class="text-sm text-gray-500 mt-2" x-show="searchResult">
+              <span x-text="searchResult?.total?.toLocaleString() ?? 0"></span> result(s)
+              <template x-if="searchQuery">
+                <span> for <strong x-text="'\"' + searchQuery + '\"'"></strong></span>
+              </template>
+            </p>
+          </div>
+
+          <!-- Loading -->
+          <div x-show="searchLoading" class="text-center text-gray-400 py-12">
+            <svg class="animate-spin w-5 h-5 mx-auto mb-2" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+            </svg>
+            Searching…
+          </div>
+
+          <!-- Empty state -->
+          <div x-show="!searchLoading && !searchQuery && searchFiles.length === 0"
+            class="text-center text-gray-400 py-16">
+            <svg class="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+            </svg>
+            <p>Enter a search term to find files</p>
+          </div>
+
+          <div x-show="!searchLoading && (searchQuery || searchExt || searchTag || searchFrom || searchTo || searchDuplicatesOnly) && searchFiles.length === 0 && searchResult"
+            class="text-center text-gray-400 py-12">No files matched your search.</div>
+
+          <!-- Results table -->
+          <div x-show="searchFiles.length > 0"
+            class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">File</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Type</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Size</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Modified</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                <template x-for="f in searchFiles" :key="f.id">
+                  <tr class="hover:bg-blue-50 cursor-pointer transition-colors"
+                      @click="openViewerFromSearch(f)">
+                    <td class="px-4 py-3">
+                      <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full flex-shrink-0"
+                              :style="'background:' + extColor(f.extension || fileExt(f.file_name))"></span>
+                        <div>
+                          <p class="font-medium text-gray-800"
+                             x-html="highlight(f.file_name, searchQuery)"></p>
+                          <p class="text-xs text-gray-400 font-mono truncate max-w-xs"
+                             x-html="highlight(f.archive_path, searchQuery)"></p>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="px-4 py-3">
+                      <span class="px-2 py-0.5 rounded text-xs font-mono bg-gray-100 text-gray-600"
+                            x-text="(f.extension || '—').toUpperCase()"></span>
+                    </td>
+                    <td class="px-4 py-3 text-gray-500" x-text="formatBytes(f.size)"></td>
+                    <td class="px-4 py-3 text-gray-500 whitespace-nowrap text-xs"
+                        x-text="formatDate(f.mod_time)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+
+            <!-- Pagination -->
+            <div x-show="searchResult && searchResult.total > searchResult.per_page"
+              class="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50 text-sm text-gray-600">
+              <span x-text="'Page ' + searchPage + ' of ' + searchResult?.total_pages"></span>
+              <div class="flex gap-2">
+                <button @click="searchPage--" :disabled="searchPage <= 1"
+                  class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Prev</button>
+                <button @click="searchPage++" :disabled="searchPage >= searchResult?.total_pages"
+                  class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Next →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div><!-- end search page -->
+
+      <!-- ══════════════════════════════════════════════════════════════
+           SETTINGS PAGE
+           ══════════════════════════════════════════════════════════════ -->
+      <div x-show="page === 'settings'" class="p-6 max-w-3xl mx-auto">
+        <h1 class="text-xl font-semibold text-gray-800 mb-6">Settings</h1>
+
+        <!-- Read-only banner -->
+        <div x-show="serverSettings && serverSettings.readonly"
+          class="flex items-center gap-2 mb-6 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
+          <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 15v2m0 0v2m0-2h2m-2 0H10m2-8V7m0 0V5m0 2h2m-2 0H10"/>
+          </svg>
+          Server is running in <strong class="mx-1">read-only mode</strong> — write operations are disabled.
+        </div>
+
+        <!-- Server configuration -->
+        <section class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6">
+          <div class="px-5 py-4 border-b border-gray-100">
+            <h2 class="font-medium text-gray-800">Server configuration</h2>
+          </div>
+          <dl class="divide-y divide-gray-100">
+            <template x-if="serverSettings">
+              <div>
+                <div class="grid grid-cols-3 gap-4 px-5 py-3">
+                  <dt class="text-sm text-gray-500">Database path</dt>
+                  <dd class="col-span-2 text-sm font-mono text-gray-700 break-all"
+                      x-text="serverSettings.db_path || '(not set)'"></dd>
+                </div>
+                <div class="grid grid-cols-3 gap-4 px-5 py-3">
+                  <dt class="text-sm text-gray-500">Archive root</dt>
+                  <dd class="col-span-2 text-sm font-mono text-gray-700 break-all"
+                      x-text="serverSettings.archive_root || '(not set)'"></dd>
+                </div>
+                <div class="grid grid-cols-3 gap-4 px-5 py-3">
+                  <dt class="text-sm text-gray-500">Thumbnail cache</dt>
+                  <dd class="col-span-2 text-sm font-mono text-gray-700 break-all"
+                      x-text="serverSettings.thumb_dir || '(not set)'"></dd>
+                </div>
+                <div class="grid grid-cols-3 gap-4 px-5 py-3">
+                  <dt class="text-sm text-gray-500">Read-only mode</dt>
+                  <dd class="col-span-2">
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                          :class="serverSettings.readonly
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-green-100 text-green-700'"
+                          x-text="serverSettings.readonly ? 'Enabled' : 'Disabled'">
+                    </span>
+                  </dd>
+                </div>
+              </div>
+            </template>
+            <template x-if="!serverSettings">
+              <div class="px-5 py-6 text-center text-sm text-gray-400">Loading…</div>
+            </template>
+          </dl>
+        </section>
+
+        <!-- Archive statistics -->
+        <section class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6">
+          <div class="px-5 py-4 border-b border-gray-100">
+            <h2 class="font-medium text-gray-800">Archive statistics</h2>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-0 divide-x divide-gray-100">
+            <div class="px-5 py-4 text-center">
+              <p class="text-2xl font-bold text-gray-800" x-text="stats?.total_files?.toLocaleString() ?? '—'"></p>
+              <p class="text-xs text-gray-500 mt-0.5">Total files</p>
+            </div>
+            <div class="px-5 py-4 text-center">
+              <p class="text-2xl font-bold text-gray-800" x-text="stats ? formatBytes(stats.total_size) : '—'"></p>
+              <p class="text-xs text-gray-500 mt-0.5">Total size</p>
+            </div>
+            <div class="px-5 py-4 text-center">
+              <p class="text-2xl font-bold text-gray-800" x-text="stats?.duplicate_count?.toLocaleString() ?? '—'"></p>
+              <p class="text-xs text-gray-500 mt-0.5">Duplicates</p>
+            </div>
+            <div class="px-5 py-4 text-center">
+              <p class="text-2xl font-bold text-gray-800" x-text="stats?.type_count?.toLocaleString() ?? '—'"></p>
+              <p class="text-xs text-gray-500 mt-0.5">File types</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- About -->
+        <section class="bg-white rounded-xl border border-gray-200 shadow-sm">
+          <div class="px-5 py-4 border-b border-gray-100">
+            <h2 class="font-medium text-gray-800">About</h2>
+          </div>
+          <div class="px-5 py-4 space-y-1 text-sm text-gray-600">
+            <p><strong class="text-gray-800">filearchiver-web</strong> — web UI companion for the filearchiver CLI</p>
+            <p>Built with Go · Alpine.js · Tailwind CSS</p>
+            <p class="text-xs text-gray-400 pt-2">
+              For authentication, place this server behind a reverse proxy (nginx, Caddy, Traefik) with basic auth.
+              Use the <code class="bg-gray-100 px-1 rounded">-readonly</code> flag to disable all write operations.
+            </p>
+          </div>
+        </section>
+      </div><!-- end settings page -->
 
     </main>
   </div><!-- end body flex -->

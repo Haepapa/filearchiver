@@ -41,6 +41,26 @@ document.addEventListener('alpine:init', () => {
     historyLoading:      false,
     historyPage:         1,
     historyStatusFilter: '',
+    historyJobFilter:    '',
+    historyMessageFilter:'',
+    historyFromDate:     '',
+    historyToDate:       '',
+
+    // ── Search page ──────────────────────────────────────────────────────────
+    searchQuery:          '',
+    searchExt:            '',
+    searchTag:            '',
+    searchFrom:           '',
+    searchTo:             '',
+    searchDuplicatesOnly: false,
+    searchFiles:          [],
+    searchResult:         null,
+    searchLoading:        false,
+    searchPage:           1,
+    searchAvailableExts:  ['jpg','png','mp4','mov','mp3','pdf','doc','txt'],
+
+    // ── Settings page ────────────────────────────────────────────────────────
+    serverSettings:  null,
 
     // ── Media viewer ─────────────────────────────────────────────────────────
     viewerOpen:            false,
@@ -130,19 +150,37 @@ document.addEventListener('alpine:init', () => {
       this.loadRecentHistory();
       this.loadNavData();
       this.loadAllTags();
+      this.restoreFromHash();
 
       this.$watch('page', p => {
+        this.updateHash();
         if (p === 'files')      this.loadFiles();
         if (p === 'history')    this.loadHistory();
         if (p === 'tags')       this.loadTagsPage();
         if (p === 'duplicates') this.loadDuplicates();
+        if (p === 'search')     this.runSearch();
+        if (p === 'settings')   this.loadSettings();
       });
+
       this.$watch('filesPage',  () => this.loadFiles());
       this.$watch('filesQuery', () => { this.filesPage = 1; this.loadFiles(); });
       this.$watch('filesSort',  () => { this.filesPage = 1; this.loadFiles(); });
       this.$watch('filesOrder', () => { this.filesPage = 1; this.loadFiles(); });
+
       this.$watch('historyPage', () => this.loadHistory());
-      this.$watch('historyStatusFilter', () => { this.historyPage = 1; this.loadHistory(); });
+      this.$watch('historyStatusFilter',  () => { this.historyPage = 1; this.loadHistory(); });
+      this.$watch('historyJobFilter',     () => { this.historyPage = 1; this.loadHistory(); });
+      this.$watch('historyMessageFilter', () => { this.historyPage = 1; this.loadHistory(); });
+      this.$watch('historyFromDate',      () => { this.historyPage = 1; this.loadHistory(); });
+      this.$watch('historyToDate',        () => { this.historyPage = 1; this.loadHistory(); });
+
+      this.$watch('searchQuery',        () => { this.searchPage = 1; this.runSearch(); this.updateHash(); });
+      this.$watch('searchExt',          () => { this.searchPage = 1; this.runSearch(); });
+      this.$watch('searchTag',          () => { this.searchPage = 1; this.runSearch(); });
+      this.$watch('searchFrom',         () => { this.searchPage = 1; this.runSearch(); });
+      this.$watch('searchTo',           () => { this.searchPage = 1; this.runSearch(); });
+      this.$watch('searchDuplicatesOnly', () => { this.searchPage = 1; this.runSearch(); });
+      this.$watch('searchPage',         () => this.runSearch());
     },
 
     // ── Data loaders ─────────────────────────────────────────────────────────
@@ -215,7 +253,11 @@ document.addEventListener('alpine:init', () => {
       this.historyLoading = true;
       try {
         const p = new URLSearchParams({ page: this.historyPage, per_page: 50 });
-        if (this.historyStatusFilter) p.set('status', this.historyStatusFilter);
+        if (this.historyStatusFilter)  p.set('status',  this.historyStatusFilter);
+        if (this.historyJobFilter)     p.set('job',     this.historyJobFilter);
+        if (this.historyMessageFilter) p.set('message', this.historyMessageFilter);
+        if (this.historyFromDate)      p.set('from',    this.historyFromDate);
+        if (this.historyToDate)        p.set('to',      this.historyToDate);
         const res = await fetch('/api/history?' + p);
         this.historyResult = await res.json();
         this.history = this.historyResult.entries ?? [];
@@ -549,7 +591,100 @@ document.addEventListener('alpine:init', () => {
       this.thumbErrors = { ...this.thumbErrors, [id]: true };
     },
 
-    // ── Duplicates page ───────────────────────────────────────────────────────
+    // ── URL hash state ────────────────────────────────────────────────────────
+    updateHash() {
+      const pages = ['dashboard','files','search','history','tags','duplicates','settings'];
+      if (!pages.includes(this.page)) return;
+      let hash = this.page;
+      if (this.page === 'search' && this.searchQuery) {
+        const sp = new URLSearchParams();
+        if (this.searchQuery) sp.set('q', this.searchQuery);
+        if (this.searchExt) sp.set('ext', this.searchExt);
+        if (this.searchTag) sp.set('tag', this.searchTag);
+        const qs = sp.toString();
+        if (qs) hash += '?' + qs;
+      }
+      history.replaceState(null, '', '#' + hash);
+    },
+
+    restoreFromHash() {
+      const raw = window.location.hash.slice(1);
+      if (!raw) return;
+      const [path, qs] = raw.split('?');
+      const valid = ['dashboard','files','search','history','tags','duplicates','settings'];
+      if (valid.includes(path)) this.page = path;
+      if (path === 'search' && qs) {
+        const sp = new URLSearchParams(qs);
+        if (sp.get('q'))   this.searchQuery = sp.get('q');
+        if (sp.get('ext')) this.searchExt   = sp.get('ext');
+        if (sp.get('tag')) this.searchTag   = sp.get('tag');
+      }
+    },
+
+    // ── Search page ───────────────────────────────────────────────────────────
+    async runSearch() {
+      const hasFilter = this.searchQuery || this.searchExt || this.searchTag ||
+                        this.searchFrom  || this.searchTo  || this.searchDuplicatesOnly;
+      if (!hasFilter) {
+        this.searchFiles  = [];
+        this.searchResult = null;
+        return;
+      }
+      this.searchLoading = true;
+      try {
+        const p = new URLSearchParams({ page: this.searchPage, per_page: 50 });
+        if (this.searchQuery)        p.set('q',              this.searchQuery);
+        if (this.searchExt)          p.set('ext',            this.searchExt);
+        if (this.searchTag)          p.set('tag',            this.searchTag);
+        if (this.searchFrom)         p.set('from',           this.searchFrom);
+        if (this.searchTo)           p.set('to',             this.searchTo);
+        if (this.searchDuplicatesOnly) p.set('duplicates_only', 'true');
+        const res = await fetch('/api/files?' + p);
+        const data = await res.json();
+        this.searchResult = data;
+        this.searchFiles  = data.files ?? [];
+      } catch(e) {
+        console.error('search', e);
+      } finally {
+        this.searchLoading = false;
+      }
+    },
+
+    clearSearchFilters() {
+      this.searchExt          = '';
+      this.searchTag          = '';
+      this.searchFrom         = '';
+      this.searchTo           = '';
+      this.searchDuplicatesOnly = false;
+    },
+
+    openViewerFromSearch(file) {
+      this.viewerFile  = file;
+      this.viewerIndex = this.searchFiles.indexOf(file);
+      this.openViewer(file);
+    },
+
+    highlight(text, query) {
+      if (!query || !text) return this._escapeHTML(text || '');
+      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp('(' + escaped + ')', 'gi');
+      return this._escapeHTML(text).replace(
+        new RegExp('(' + escaped + ')', 'gi'),
+        '<mark class="bg-yellow-200 rounded px-0.5">$1</mark>',
+      );
+    },
+
+    _escapeHTML(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    },
+
+    // ── Settings page ─────────────────────────────────────────────────────────
+    async loadSettings() {
+      try {
+        const res = await fetch('/api/settings');
+        this.serverSettings = await res.json();
+      } catch(e) { console.error('settings', e); }
+    },
     async loadDuplicates() {
       this.dupLoading = true;
       this.dupDismissed = {};

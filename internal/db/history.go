@@ -17,12 +17,13 @@ type HistoryEntry struct {
 
 // HistoryListParams holds filter/pagination options for ListHistory.
 type HistoryListParams struct {
-	JobName string
-	Status  string
-	From    string
-	To      string
-	Page    int
-	PerPage int
+	JobName       string // LIKE search on job_name
+	Status        string
+	From          string // ISO date "YYYY-MM-DD"
+	To            string
+	MessageSearch string // LIKE search on message
+	Page          int
+	PerPage       int
 }
 
 // HistoryListResult is the paginated response for ListHistory.
@@ -47,8 +48,12 @@ func ListHistory(database *sql.DB, p HistoryListParams) (*HistoryListResult, err
 	var args []interface{}
 
 	if p.JobName != "" {
-		conditions = append(conditions, `job_name = ?`)
-		args = append(args, p.JobName)
+		conditions = append(conditions, `job_name LIKE ?`)
+		args = append(args, "%"+p.JobName+"%")
+	}
+	if p.MessageSearch != "" {
+		conditions = append(conditions, `message LIKE ?`)
+		args = append(args, "%"+p.MessageSearch+"%")
 	}
 	if p.Status != "" {
 		conditions = append(conditions, `status = ?`)
