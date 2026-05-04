@@ -1,0 +1,1529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>filearchiver</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .sidebar-link { @apply flex items-center gap-2 px-3 py-1.5 rounded-md text-sm text-gray-700 cursor-pointer transition-colors; }
+    .sidebar-link:hover { @apply bg-gray-100; }
+    .sidebar-link.active { @apply bg-blue-50 text-blue-700 font-medium; }
+    .viewer-text pre { @apply text-xs leading-relaxed whitespace-pre-wrap break-all; }
+  </style>
+  <script src="/static/app.js"></script>
+</head>
+
+<body class="bg-gray-50 text-gray-900 h-screen flex flex-col overflow-hidden"
+      x-data="app" x-cloak
+      @keydown.escape.window="if(viewerOpen) closeViewer()"
+      @keydown.arrow-left.window="if(viewerOpen) prevFile()"
+      @keydown.arrow-right.window="if(viewerOpen) nextFile()">
+
+  <!-- ── Header ── -->
+  <header class="bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between flex-shrink-0 z-10 shadow-sm">
+    <div class="flex items-center gap-2.5">
+      <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+      </svg>
+      <span class="text-lg font-semibold tracking-tight">filearchiver</span>
+    </div>
+    <nav class="flex gap-1">
+      <template x-for="[id, label] in [['dashboard','Dashboard'],['files','Files'],['search','Search'],['duplicates','Duplicates'],['tags','Tags'],['history','History'],['settings','Settings']]" :key="id">
+        <button @click="page = id"
+          :class="page === id ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
+          class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          x-text="label">
+        </button>
+      </template>
+    </nav>
+  </header>
+
+  <!-- ── Body (sidebar + main) ── -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- ── Sidebar (Files page only) ── -->
+    <aside x-show="page === 'files'" x-transition:enter="transition-all duration-150"
+      class="w-56 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0 py-3 px-2 flex flex-col gap-1">
+
+      <!-- All Files -->
+      <button class="sidebar-link w-full text-left"
+        :class="!filterExt && !filterYear && !filterTag && !filterDuplicates && !filesQuery ? 'active' : ''"
+        @click="clearAllFilters(); page='files'">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18M3 12h18M3 17h18"/>
+        </svg>
+        <span>All Files</span>
+        <span class="ml-auto text-xs text-gray-400" x-text="filesResult?.total ?? stats?.total_files ?? ''"></span>
+      </button>
+
+      <div class="border-t border-gray-100 my-1"></div>
+
+      <!-- By Type -->
+      <button class="sidebar-link w-full text-left font-semibold text-xs text-gray-500 uppercase tracking-wide px-3 py-1 hover:bg-transparent cursor-default select-none flex items-center justify-between"
+        @click="navTypesOpen = !navTypesOpen">
+        <span>By Type</span>
+        <svg class="w-3.5 h-3.5 transition-transform" :class="navTypesOpen ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </button>
+
+      <div x-show="navTypesOpen" x-collapse>
+        <template x-for="t in navTypes" :key="t.extension">
+          <button class="sidebar-link w-full text-left pl-5"
+            :class="filterExt === t.extension ? 'active' : ''"
+            @click="setFilter('ext', t.extension)">
+            <span class="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0"
+              :style="'background:' + extColor(t.extension)"></span>
+            <span class="truncate" x-text="t.extension || 'no ext'"></span>
+            <span class="ml-auto text-xs text-gray-400" x-text="t.count"></span>
+          </button>
+        </template>
+        <div x-show="navTypes.length === 0" class="px-5 py-1 text-xs text-gray-400">No files yet</div>
+      </div>
+
+      <div class="border-t border-gray-100 my-1"></div>
+
+      <!-- By Date -->
+      <button class="sidebar-link w-full text-left font-semibold text-xs text-gray-500 uppercase tracking-wide px-3 py-1 hover:bg-transparent cursor-default select-none flex items-center justify-between"
+        @click="navDatesOpen = !navDatesOpen">
+        <span>By Date</span>
+        <svg class="w-3.5 h-3.5 transition-transform" :class="navDatesOpen ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </button>
+
+      <div x-show="navDatesOpen" x-collapse>
+        <template x-for="y in navDates" :key="y.year">
+          <div>
+            <button class="sidebar-link w-full text-left pl-5"
+              :class="filterYear === y.year && !filterMonth ? 'active' : ''"
+              @click="navExpandedYears[y.year] = !navExpandedYears[y.year]; setFilter('year', y.year)">
+              <svg class="w-3.5 h-3.5 flex-shrink-0 transition-transform"
+                :class="navExpandedYears[y.year] ? 'rotate-90' : ''"
+                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+              </svg>
+              <span x-text="y.year"></span>
+              <span class="ml-auto text-xs text-gray-400" x-text="y.count"></span>
+            </button>
+            <div x-show="navExpandedYears[y.year]">
+              <template x-for="m in y.months" :key="m.month">
+                <button class="sidebar-link w-full text-left pl-10"
+                  :class="filterYear === y.year && filterMonth === m.month ? 'active' : ''"
+                  @click="setFilter('month', y.year, m.month)">
+                  <span x-text="monthName(m.month)"></span>
+                  <span class="ml-auto text-xs text-gray-400" x-text="m.count"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </template>
+        <div x-show="navDates.length === 0" class="px-5 py-1 text-xs text-gray-400">No files yet</div>
+      </div>
+
+      <div class="border-t border-gray-100 my-1"></div>
+
+      <!-- By Tag -->
+      <button class="sidebar-link w-full text-left font-semibold text-xs text-gray-500 uppercase tracking-wide px-3 py-1 hover:bg-transparent cursor-default select-none flex items-center justify-between"
+        @click="navTagsOpen = !navTagsOpen">
+        <span>By Tag</span>
+        <svg class="w-3.5 h-3.5 transition-transform" :class="navTagsOpen ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </button>
+
+      <div x-show="navTagsOpen" x-collapse>
+        <template x-for="cat in navTags" :key="cat.id">
+          <div class="mb-1">
+            <div class="px-3 py-0.5 text-xs font-semibold flex items-center gap-1.5">
+              <span class="inline-block w-2 h-2 rounded-full" :style="'background:' + cat.color"></span>
+              <span x-text="cat.name" class="text-gray-500"></span>
+            </div>
+            <template x-for="tag in cat.tags" :key="tag.id">
+              <button class="sidebar-link w-full text-left pl-7"
+                :class="filterTag === tag.name ? 'active' : ''"
+                @click="setFilter('tag', tag.name)">
+                <span class="truncate" x-text="tag.name"></span>
+                <span class="ml-auto text-xs text-gray-400" x-text="tag.count"></span>
+              </button>
+            </template>
+            <div x-show="!cat.tags || cat.tags.length === 0" class="px-7 py-0.5 text-xs text-gray-400">No tags yet</div>
+          </div>
+        </template>
+      </div>
+
+      <div class="border-t border-gray-100 my-1"></div>
+
+      <!-- Duplicates -->
+      <button class="sidebar-link w-full text-left"
+        :class="filterDuplicates ? 'active' : ''"
+        @click="setFilter('duplicates')">
+        <svg class="w-4 h-4 flex-shrink-0 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+        </svg>
+        <span>Duplicates</span>
+        <template x-if="navDuplicateCount > 0">
+          <span class="ml-auto bg-yellow-100 text-yellow-700 text-xs font-medium px-1.5 py-0.5 rounded-full"
+            x-text="navDuplicateCount"></span>
+        </template>
+      </button>
+    </aside>
+
+    <!-- ── Main content ── -->
+    <main class="flex-1 overflow-y-auto">
+
+      <!-- ════════════════ DASHBOARD ════════════════ -->
+      <div x-show="page === 'dashboard'" class="p-6 max-w-6xl mx-auto">
+        <h1 class="text-2xl font-bold mb-6">Dashboard</h1>
+
+        <!-- Stats cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+            <p class="text-sm text-gray-500 mb-1">Total Files</p>
+            <p class="text-3xl font-bold" x-text="stats?.total_files?.toLocaleString() ?? '…'"></p>
+          </div>
+          <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+            <p class="text-sm text-gray-500 mb-1">Archive Size</p>
+            <p class="text-3xl font-bold" x-text="stats?.total_size_human ?? '…'"></p>
+          </div>
+          <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+            <p class="text-sm text-gray-500 mb-1">File Types</p>
+            <p class="text-3xl font-bold" x-text="stats?.extensions?.length ?? '…'"></p>
+          </div>
+          <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+            <p class="text-sm text-gray-500 mb-1">Tagged Files</p>
+            <p class="text-3xl font-bold" x-text="stats?.tagged_files?.toLocaleString() ?? '…'"></p>
+          </div>
+        </div>
+
+        <!-- File-type breakdown -->
+        <div class="bg-white rounded-xl border border-gray-200 p-6 mb-8 shadow-sm" x-show="stats?.extensions?.length">
+          <h2 class="text-base font-semibold mb-4">File Types</h2>
+          <div class="space-y-2.5">
+            <template x-for="ext in (stats?.extensions ?? []).slice(0,12)" :key="ext.extension">
+              <div class="flex items-center gap-3">
+                <span class="w-20 text-sm font-mono text-gray-600 truncate"
+                  x-text="ext.extension || 'no ext'"></span>
+                <div class="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                  <div class="h-2 rounded-full transition-all"
+                    :style="'width:' + (stats.total_files > 0 ? Math.round((ext.count / stats.total_files)*100) : 0) + '%; background:' + extColor(ext.extension)">
+                  </div>
+                </div>
+                <span class="text-sm text-gray-500 w-20 text-right tabular-nums" x-text="ext.count.toLocaleString()"></span>
+                <span class="text-sm text-gray-400 w-16 text-right tabular-nums" x-text="ext.size_human"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Recent archives -->
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
+          <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+            <h2 class="text-base font-semibold">Recent Archives</h2>
+            <button @click="page='history'" class="text-sm text-blue-600 hover:underline">View all →</button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">File</th>
+                  <th class="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Job</th>
+                  <th class="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Date</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-50">
+                <template x-for="h in recentHistory" :key="h.id">
+                  <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-2.5 text-gray-800 truncate max-w-sm font-mono text-xs"
+                      x-text="h.message.replace('Archived: ','')"></td>
+                    <td class="px-4 py-2.5 text-gray-500 text-xs" x-text="h.job_name"></td>
+                    <td class="px-4 py-2.5 text-gray-400 text-xs whitespace-nowrap" x-text="formatDateTime(h.timestamp)"></td>
+                  </tr>
+                </template>
+                <tr x-show="recentHistory.length === 0">
+                  <td colspan="3" class="px-4 py-8 text-center text-gray-400 text-sm">No archives yet</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════ FILES ════════════════ -->
+      <div x-show="page === 'files'" class="p-6">
+
+        <!-- Filter bar + controls -->
+        <div class="flex flex-wrap items-center gap-3 mb-4">
+          <!-- Search -->
+          <div class="relative flex-1 min-w-48">
+            <svg class="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+            </svg>
+            <input type="text" placeholder="Search files…" x-model.debounce.300ms="filesQuery"
+              class="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+          </div>
+
+          <!-- Sort -->
+          <select x-model="filesSort"
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="mod_time">Date modified</option>
+            <option value="file_name">Name</option>
+            <option value="size">Size</option>
+          </select>
+          <select x-model="filesOrder"
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="desc">Newest first</option>
+            <option value="asc">Oldest first</option>
+          </select>
+
+          <!-- View mode toggle -->
+          <div class="flex border border-gray-300 rounded-lg overflow-hidden">
+            <button @click="viewMode='list'"
+              :class="viewMode==='list' ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-500 hover:bg-gray-50'"
+              class="px-3 py-2 transition-colors" title="List view">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+              </svg>
+            </button>
+            <button @click="viewMode='grid'"
+              :class="viewMode==='grid' ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-500 hover:bg-gray-50'"
+              class="px-3 py-2 border-l border-gray-300 transition-colors" title="Grid view">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Active filter chips -->
+        <div class="flex flex-wrap gap-2 mb-4" x-show="chips.length > 0">
+          <template x-for="chip in chips" :key="chip.key">
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+              <span x-text="chip.label"></span>
+              <button @click="clearChip(chip.key)" class="hover:text-blue-600 ml-0.5 leading-none" title="Remove filter">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </button>
+            </span>
+          </template>
+          <button @click="clearAllFilters()" class="text-xs text-gray-500 hover:text-gray-700 underline">Clear all</button>
+        </div>
+
+        <!-- ── LIST VIEW ── -->
+        <div x-show="viewMode === 'list'" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Name</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Type</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">Size</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Modified</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide hidden md:table-cell">Tags</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide hidden lg:table-cell">Archive path</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <template x-for="(f, idx) in files" :key="f.id">
+                <tr class="hover:bg-gray-50 transition-colors cursor-pointer" @click="openViewer(f, idx)">
+                  <td class="px-4 py-3 font-medium truncate max-w-xs" x-text="f.file_name"></td>
+                  <td class="px-4 py-3">
+                    <span class="inline-flex items-center gap-1">
+                      <span class="w-2 h-2 rounded-sm inline-block"
+                        :style="'background:' + extColor(f.extension)"></span>
+                      <span class="font-mono text-xs text-gray-600"
+                        x-text="f.extension || 'none'"></span>
+                    </span>
+                    <template x-if="f.is_duplicate">
+                      <span class="ml-1.5 bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded text-xs">dup</span>
+                    </template>
+                  </td>
+                  <td class="px-4 py-3 text-right text-gray-500 tabular-nums" x-text="formatBytes(f.size)"></td>
+                  <td class="px-4 py-3 text-gray-500 whitespace-nowrap" x-text="formatDate(f.mod_time)"></td>
+                  <!-- Tags column -->
+                  <td class="px-4 py-3 hidden md:table-cell">
+                    <div class="flex flex-wrap gap-1">
+                      <template x-for="tag in (f.tags || [])" :key="tag.id">
+                        <span class="inline-block px-1.5 py-0.5 rounded-full text-xs text-white leading-none"
+                              :style="'background:' + (tag.category_color || '#6b7280')"
+                              x-text="tag.name"></span>
+                      </template>
+                    </div>
+                  </td>
+                  <td class="px-4 py-3 text-gray-400 text-xs font-mono truncate max-w-sm hidden lg:table-cell"
+                    x-text="f.archive_path"></td>
+                </tr>
+              </template>
+              <tr x-show="files.length === 0 && !filesLoading">
+                <td colspan="6" class="px-4 py-12 text-center text-gray-400">No files found</td>
+              </tr>
+              <tr x-show="filesLoading">
+                <td colspan="6" class="px-4 py-12 text-center text-gray-400">
+                  <div class="flex items-center justify-center gap-2">
+                    <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                    Loading…
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- ── GRID VIEW ── -->
+        <div x-show="viewMode === 'grid'">
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            <template x-for="(f, idx) in files" :key="f.id">
+              <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md hover:border-blue-200 transition-all group cursor-pointer"
+                   @click="openViewer(f, idx)">
+                <!-- Thumbnail for images, extension icon for others -->
+                <div class="aspect-square flex items-center justify-center overflow-hidden"
+                     :style="isImageExt(f.extension) && !thumbErrors[f.id] ? '' : 'background:' + extColor(f.extension) + '18; color:' + extColor(f.extension)">
+                  <template x-if="isImageExt(f.extension) && !thumbErrors[f.id]">
+                    <img :src="thumbnailURL(f.id)" :alt="f.file_name"
+                         class="w-full h-full object-cover"
+                         @error="onThumbError(f.id)" />
+                  </template>
+                  <template x-if="!isImageExt(f.extension) || thumbErrors[f.id]">
+                    <div class="flex flex-col items-center gap-1 text-inherit">
+                      <svg class="w-8 h-8 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                          d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                      </svg>
+                      <span class="text-xs font-bold tracking-wide uppercase"
+                        x-text="extLabel(f.extension)"></span>
+                    </div>
+                  </template>
+                </div>
+                <!-- File info -->
+                <div class="p-3">
+                  <p class="text-xs font-medium text-gray-800 truncate leading-tight mb-1"
+                    x-text="f.file_name" :title="f.file_name"></p>
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs text-gray-400 tabular-nums" x-text="formatBytes(f.size)"></span>
+                    <template x-if="f.is_duplicate">
+                      <span class="bg-yellow-100 text-yellow-700 px-1 py-0.5 rounded text-xs leading-none">dup</span>
+                    </template>
+                  </div>
+                  <p class="text-xs text-gray-400 mt-0.5" x-text="formatDate(f.mod_time)"></p>
+                  <!-- Tags -->
+                  <div x-show="f.tags && f.tags.length > 0" class="flex flex-wrap gap-1 mt-1.5">
+                    <template x-for="tag in (f.tags || [])" :key="tag.id">
+                      <span class="inline-block px-1.5 py-0.5 rounded-full text-xs text-white leading-none"
+                            :style="'background:' + (tag.category_color || '#6b7280')"
+                            x-text="tag.name"></span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Grid empty state -->
+          <div x-show="files.length === 0 && !filesLoading"
+            class="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400 shadow-sm">
+            No files found
+          </div>
+          <div x-show="filesLoading"
+            class="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400 shadow-sm">
+            <div class="flex items-center justify-center gap-2">
+              <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+              </svg>
+              Loading…
+            </div>
+          </div>
+        </div>
+
+        <!-- Pagination -->
+        <div x-show="filesResult && filesResult.total > filesResult.per_page"
+          class="flex items-center justify-between mt-4 py-3 px-1 text-sm text-gray-600">
+          <span x-text="'Showing ' + ((filesResult.page-1)*filesResult.per_page+1).toLocaleString()
+            + '–' + Math.min(filesResult.page*filesResult.per_page, filesResult.total).toLocaleString()
+            + ' of ' + filesResult.total.toLocaleString()"></span>
+          <div class="flex gap-2">
+            <button @click="filesPage--" :disabled="filesPage <= 1"
+              class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100 transition-colors">
+              ← Previous
+            </button>
+            <span class="px-3 py-1.5 text-gray-500"
+              x-text="'Page ' + filesResult.page + ' of ' + filesResult.total_pages"></span>
+            <button @click="filesPage++" :disabled="filesPage >= filesResult.total_pages"
+              class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100 transition-colors">
+              Next →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════ HISTORY ════════════════ -->
+      <div x-show="page === 'history'" class="p-6 max-w-6xl mx-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h1 class="text-2xl font-bold">Archive History</h1>
+          <!-- Status filter -->
+          <select x-model="historyStatusFilter"
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">All statuses</option>
+            <option value="SUCCESS">Success</option>
+            <option value="FAILED">Failed</option>
+            <option value="SKIPPED">Skipped</option>
+          </select>
+        </div>
+
+        <!-- Additional filters row -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <input type="text" x-model.debounce.400ms="historyJobFilter"
+            placeholder="Job name…"
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <input type="text" x-model.debounce.400ms="historyMessageFilter"
+            placeholder="Message contains…"
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <input type="date" x-model="historyFromDate" title="From date"
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <input type="date" x-model="historyToDate" title="To date"
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+
+        <!-- Summary bar -->
+        <div x-show="historyResult" class="grid grid-cols-3 gap-4 mb-6">
+          <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm text-center">
+            <p class="text-2xl font-bold text-gray-800" x-text="historyResult?.total?.toLocaleString() ?? 0"></p>
+            <p class="text-xs text-gray-500 mt-0.5">Total entries</p>
+          </div>
+          <div class="bg-green-50 rounded-xl border border-green-100 p-4 shadow-sm text-center">
+            <p class="text-2xl font-bold text-green-700" x-text="history.filter(h=>h.status==='SUCCESS').length"></p>
+            <p class="text-xs text-green-600 mt-0.5">Success (this page)</p>
+          </div>
+          <div class="bg-red-50 rounded-xl border border-red-100 p-4 shadow-sm text-center">
+            <p class="text-2xl font-bold text-red-700" x-text="history.filter(h=>h.status==='FAILED').length"></p>
+            <p class="text-xs text-red-600 mt-0.5">Failed (this page)</p>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Timestamp</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Job</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Message</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <template x-for="h in history" :key="h.id">
+                <tr class="hover:bg-gray-50 transition-colors">
+                  <td class="px-4 py-3 text-gray-500 whitespace-nowrap text-xs"
+                    x-text="formatDateTime(h.timestamp)"></td>
+                  <td class="px-4 py-3 font-mono text-xs text-gray-600" x-text="h.job_name"></td>
+                  <td class="px-4 py-3">
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                      :class="{
+                        'bg-green-100 text-green-700': h.status === 'SUCCESS',
+                        'bg-red-100   text-red-700':   h.status === 'FAILED',
+                        'bg-gray-100  text-gray-600':  h.status === 'SKIPPED'
+                      }" x-text="h.status"></span>
+                  </td>
+                  <td class="px-4 py-3 text-gray-500 text-xs font-mono truncate max-w-sm"
+                    x-text="h.message"></td>
+                </tr>
+              </template>
+              <tr x-show="history.length === 0 && !historyLoading">
+                <td colspan="4" class="px-4 py-12 text-center text-gray-400">No history entries</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div x-show="historyResult && historyResult.total > historyResult.per_page"
+            class="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50 text-sm text-gray-600">
+            <span x-text="'Total: ' + historyResult?.total?.toLocaleString() + ' entries'"></span>
+            <div class="flex gap-2">
+              <button @click="historyPage--" :disabled="historyPage <= 1"
+                class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Previous</button>
+              <button @click="historyPage++" :disabled="historyPage >= historyResult?.total_pages"
+                class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Next →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           TAGS PAGE
+           ══════════════════════════════════════════════════════════════ -->
+      <div x-show="page === 'tags'" class="p-6 max-w-5xl mx-auto">
+        <div class="flex items-center justify-between mb-6">
+          <h1 class="text-xl font-semibold text-gray-800">Tags</h1>
+          <div class="flex gap-2">
+            <button @click="openCatModal()"
+              class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+              </svg>
+              New Category
+            </button>
+            <button @click="openTagModal()"
+              class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+              </svg>
+              New Tag
+            </button>
+          </div>
+        </div>
+
+        <!-- Tag categories list -->
+        <div class="space-y-4">
+          <template x-for="cat in tagsPageCategories" :key="cat.id">
+            <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <!-- Category header -->
+              <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-3 h-3 rounded-full flex-shrink-0" :style="'background:' + cat.color"></span>
+                  <span class="font-semibold text-gray-800" x-text="cat.name"></span>
+                  <span class="text-xs text-gray-400" x-text="'(' + (cat.tags ? cat.tags.length : 0) + ' tags)'"></span>
+                </div>
+                <div class="flex gap-1">
+                  <button @click="openTagModal(cat.id)"
+                    class="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors" title="Add tag to category">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                    </svg>
+                  </button>
+                  <button @click="openCatModal(cat)"
+                    class="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors" title="Edit category">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                    </svg>
+                  </button>
+                  <button @click="confirmDeleteCategory(cat)"
+                    class="p-1.5 rounded hover:bg-red-50 text-gray-500 hover:text-red-600 transition-colors" title="Delete category">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <!-- Tag badges -->
+              <div class="px-5 py-4 flex flex-wrap gap-2 min-h-[3rem]">
+                <template x-if="!cat.tags || cat.tags.length === 0">
+                  <span class="text-sm text-gray-400 italic">No tags yet — click + to add one</span>
+                </template>
+                <template x-for="tag in cat.tags" :key="tag.id">
+                  <div class="flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full text-sm text-white"
+                       :style="'background:' + cat.color">
+                    <span x-text="tag.name"></span>
+                    <span class="text-white/60 text-xs ml-1" x-text="tag.file_count > 0 ? tag.file_count + ' files' : ''"></span>
+                    <button @click="openTagModal(cat.id, tag)"
+                      class="ml-0.5 p-0.5 rounded-full hover:bg-white/20 transition-colors" title="Edit tag">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                      </svg>
+                    </button>
+                    <button @click="confirmDeleteTag(tag)"
+                      class="p-0.5 rounded-full hover:bg-white/20 transition-colors" title="Delete tag">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                      </svg>
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <!-- Uncategorised tags -->
+          <template x-if="tagsPageUncategorised.length > 0">
+            <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+                <span class="font-semibold text-gray-500 text-sm">Uncategorised</span>
+              </div>
+              <div class="px-5 py-4 flex flex-wrap gap-2">
+                <template x-for="tag in tagsPageUncategorised" :key="tag.id">
+                  <div class="flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full text-sm bg-gray-400 text-white">
+                    <span x-text="tag.name"></span>
+                    <button @click="confirmDeleteTag(tag)"
+                      class="p-0.5 rounded-full hover:bg-white/20" title="Delete">
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                      </svg>
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div><!-- end categories list -->
+      </div><!-- end tags page -->
+
+      <!-- ══════════════════════════════════════════════════════════════
+           DUPLICATES PAGE
+           ══════════════════════════════════════════════════════════════ -->
+      <div x-show="page === 'duplicates'" class="p-6 max-w-6xl mx-auto">
+
+        <!-- Header row -->
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h1 class="text-xl font-semibold text-gray-800">Duplicate Files</h1>
+            <p class="text-sm text-gray-500 mt-0.5"
+               x-text="dupGroups.length + ' group' + (dupGroups.length === 1 ? '' : 's') + ' found'"></p>
+          </div>
+          <div class="flex gap-2">
+            <button @click="refreshDuplicates()"
+              class="px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-100 text-sm transition-colors">
+              ↺ Refresh
+            </button>
+            <button @click="confirmBulkDelete()"
+              :disabled="identicalCount === 0"
+              class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium disabled:opacity-40 transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+              </svg>
+              Delete all identical
+              <span x-show="identicalCount > 0"
+                class="bg-white/20 px-1.5 rounded text-xs" x-text="'(' + identicalCount + ')'"></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Loading / empty states -->
+        <div x-show="dupLoading" class="text-center text-gray-400 py-16">
+          <svg class="animate-spin w-6 h-6 mx-auto mb-3" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+          </svg>
+          Loading duplicates…
+        </div>
+        <div x-show="!dupLoading && dupGroups.length === 0"
+          class="bg-white rounded-xl border border-gray-200 p-16 text-center shadow-sm">
+          <svg class="w-12 h-12 mx-auto mb-3 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <p class="text-gray-500 font-medium">No duplicates found</p>
+          <p class="text-sm text-gray-400 mt-1">Your archive looks clean!</p>
+        </div>
+
+        <!-- Duplicate groups -->
+        <div class="space-y-6">
+          <template x-for="(g, gi) in visibleGroups" :key="g.file_name + gi">
+            <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+
+              <!-- Group header -->
+              <div class="flex items-center justify-between px-5 py-3 bg-gray-50 border-b border-gray-200">
+                <div class="flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full"
+                        :style="'background:' + extColor(fileExt(g.file_name))"></span>
+                  <span class="font-medium text-gray-800 text-sm" x-text="g.file_name"></span>
+                  <template x-for="dup in g.duplicates">
+                    <span class="ml-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                          :class="dupIsIdentical(g, dup)
+                            ? 'bg-yellow-100 text-yellow-700'
+                            : 'bg-red-100 text-red-700'"
+                          x-text="dupIsIdentical(g, dup) ? 'Identical' : 'Different content'">
+                    </span>
+                  </template>
+                </div>
+                <button @click="dismissGroup(gi)"
+                  class="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100 transition-colors"
+                  title="Keep both — hide from this view">
+                  Keep both
+                </button>
+              </div>
+
+              <!-- Side-by-side comparison -->
+              <div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-100">
+
+                <!-- Primary -->
+                <div class="p-5">
+                  <div class="flex items-center gap-2 mb-3">
+                    <span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-semibold">Primary</span>
+                    <span class="text-xs text-gray-400">main archive copy</span>
+                  </div>
+                  <template x-if="g.primary">
+                    <div class="space-y-2">
+                      <!-- Thumbnail/preview -->
+                      <template x-if="isImageExt(fileExt(g.file_name))">
+                        <img :src="thumbnailURL(g.primary.id)" :alt="g.file_name"
+                             class="w-32 h-32 object-cover rounded-lg border border-gray-200 mb-3"
+                             @error="$event.target.style.display='none'" />
+                      </template>
+                      <div class="space-y-1 text-sm">
+                        <div class="flex justify-between">
+                          <span class="text-gray-500">Size</span>
+                          <span class="font-mono text-gray-700" x-text="formatBytes(g.primary.size)"></span>
+                        </div>
+                        <div class="flex justify-between">
+                          <span class="text-gray-500">Modified</span>
+                          <span class="text-gray-700" x-text="formatDate(g.primary.mod_time)"></span>
+                        </div>
+                        <div class="flex gap-1">
+                          <span class="text-gray-500 flex-shrink-0">Checksum</span>
+                          <span class="font-mono text-xs text-gray-400 truncate" x-text="g.primary.checksum || '—'"></span>
+                        </div>
+                        <div class="pt-1">
+                          <p class="text-xs text-gray-400 font-mono break-all" x-text="g.primary.archive_path"></p>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="!g.primary">
+                    <div class="text-sm text-gray-400 italic">Primary file not found in registry</div>
+                  </template>
+                </div>
+
+                <!-- Duplicates -->
+                <div class="p-5">
+                  <div class="flex items-center gap-2 mb-3">
+                    <span class="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold">
+                      Duplicate<template x-if="g.duplicates.length > 1">s</template>
+                    </span>
+                    <span class="text-xs text-gray-400">in _duplicates/</span>
+                  </div>
+                  <template x-for="(dup, di) in g.duplicates" :key="dup.id">
+                    <div class="space-y-2" :class="di > 0 ? 'mt-4 pt-4 border-t border-gray-100' : ''">
+                      <!-- Thumbnail/preview -->
+                      <template x-if="isImageExt(fileExt(g.file_name))">
+                        <img :src="thumbnailURL(dup.id)" :alt="g.file_name"
+                             class="w-32 h-32 object-cover rounded-lg border border-gray-200 mb-3"
+                             @error="$event.target.style.display='none'" />
+                      </template>
+                      <div class="space-y-1 text-sm">
+                        <div class="flex justify-between">
+                          <span class="text-gray-500">Size</span>
+                          <span class="font-mono text-gray-700" x-text="formatBytes(dup.size)"></span>
+                        </div>
+                        <div class="flex justify-between">
+                          <span class="text-gray-500">Modified</span>
+                          <span class="text-gray-700" x-text="formatDate(dup.mod_time)"></span>
+                        </div>
+                        <div class="flex gap-1">
+                          <span class="text-gray-500 flex-shrink-0">Checksum</span>
+                          <span class="font-mono text-xs text-gray-400 truncate" x-text="dup.checksum || '—'"></span>
+                        </div>
+                        <div class="pt-1">
+                          <p class="text-xs text-gray-400 font-mono break-all" x-text="dup.archive_path"></p>
+                        </div>
+                      </div>
+
+                      <!-- Actions -->
+                      <div class="flex flex-wrap gap-2 pt-3 border-t border-gray-100">
+                        <button @click="confirmDeleteDup(dup, g)"
+                          class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 text-xs font-medium transition-colors">
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                          </svg>
+                          Delete duplicate
+                        </button>
+                        <template x-if="g.primary">
+                          <button @click="confirmPromote(dup, g)"
+                            class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium transition-colors">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M5 10l7-7m0 0l7 7m-7-7v18"/>
+                            </svg>
+                            Promote (replace primary)
+                          </button>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div><!-- end side-by-side -->
+            </div><!-- end group card -->
+          </template>
+        </div><!-- end groups -->
+      </div><!-- end duplicates page -->
+
+      <!-- ══════════════════════════════════════════════════════════════
+           SEARCH PAGE
+           ══════════════════════════════════════════════════════════════ -->
+      <div x-show="page === 'search'" class="flex flex-1 overflow-hidden">
+
+        <!-- Filter sidebar -->
+        <aside class="w-56 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0 py-4 px-3">
+          <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Filters</h2>
+
+          <!-- Extension -->
+          <div class="mb-4">
+            <p class="text-xs text-gray-500 mb-1.5">File type</p>
+            <div class="flex flex-wrap gap-1">
+              <template x-for="ext in searchAvailableExts" :key="ext">
+                <button @click="searchExt = searchExt === ext ? '' : ext"
+                  class="px-2 py-0.5 rounded text-xs font-medium transition-colors"
+                  :class="searchExt === ext
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+                  x-text="ext.toUpperCase()">
+                </button>
+              </template>
+            </div>
+            <input type="text" x-model="searchExt" placeholder="or type ext…"
+              class="mt-1.5 w-full border border-gray-200 rounded px-2 py-1 text-xs" />
+          </div>
+
+          <!-- Tag filter -->
+          <div class="mb-4">
+            <p class="text-xs text-gray-500 mb-1.5">Tag</p>
+            <input type="text" x-model="searchTag" placeholder="Tag name…"
+              class="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
+          </div>
+
+          <!-- Date range -->
+          <div class="mb-4">
+            <p class="text-xs text-gray-500 mb-1.5">Modified after</p>
+            <input type="date" x-model="searchFrom"
+              class="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
+            <p class="text-xs text-gray-500 mt-2 mb-1.5">Modified before</p>
+            <input type="date" x-model="searchTo"
+              class="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
+          </div>
+
+          <!-- Duplicates toggle -->
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="searchDups" x-model="searchDuplicatesOnly" class="rounded" />
+            <label for="searchDups" class="text-xs text-gray-600">Duplicates only</label>
+          </div>
+
+          <!-- Clear filters -->
+          <button @click="clearSearchFilters()"
+            class="mt-4 w-full px-3 py-1.5 rounded border border-gray-300 text-xs text-gray-600 hover:bg-gray-100 transition-colors">
+            Clear filters
+          </button>
+        </aside>
+
+        <!-- Results pane -->
+        <div class="flex-1 overflow-y-auto p-6">
+          <!-- Search box -->
+          <div class="mb-6">
+            <div class="relative max-w-2xl">
+              <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+              </svg>
+              <input type="search" x-model.debounce.400ms="searchQuery"
+                placeholder="Search files by name, path…"
+                class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm" />
+            </div>
+            <p class="text-sm text-gray-500 mt-2" x-show="searchResult">
+              <span x-text="searchResult?.total?.toLocaleString() ?? 0"></span> result(s)
+              <template x-if="searchQuery">
+                <span> for <strong x-text="'\"' + searchQuery + '\"'"></strong></span>
+              </template>
+            </p>
+          </div>
+
+          <!-- Loading -->
+          <div x-show="searchLoading" class="text-center text-gray-400 py-12">
+            <svg class="animate-spin w-5 h-5 mx-auto mb-2" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+            </svg>
+            Searching…
+          </div>
+
+          <!-- Empty state -->
+          <div x-show="!searchLoading && !searchQuery && searchFiles.length === 0"
+            class="text-center text-gray-400 py-16">
+            <svg class="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+            </svg>
+            <p>Enter a search term to find files</p>
+          </div>
+
+          <div x-show="!searchLoading && (searchQuery || searchExt || searchTag || searchFrom || searchTo || searchDuplicatesOnly) && searchFiles.length === 0 && searchResult"
+            class="text-center text-gray-400 py-12">No files matched your search.</div>
+
+          <!-- Results table -->
+          <div x-show="searchFiles.length > 0"
+            class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">File</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Type</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Size</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Modified</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                <template x-for="f in searchFiles" :key="f.id">
+                  <tr class="hover:bg-blue-50 cursor-pointer transition-colors"
+                      @click="openViewerFromSearch(f)">
+                    <td class="px-4 py-3">
+                      <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full flex-shrink-0"
+                              :style="'background:' + extColor(f.extension || fileExt(f.file_name))"></span>
+                        <div>
+                          <p class="font-medium text-gray-800"
+                             x-html="highlight(f.file_name, searchQuery)"></p>
+                          <p class="text-xs text-gray-400 font-mono truncate max-w-xs"
+                             x-html="highlight(f.archive_path, searchQuery)"></p>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="px-4 py-3">
+                      <span class="px-2 py-0.5 rounded text-xs font-mono bg-gray-100 text-gray-600"
+                            x-text="(f.extension || '—').toUpperCase()"></span>
+                    </td>
+                    <td class="px-4 py-3 text-gray-500" x-text="formatBytes(f.size)"></td>
+                    <td class="px-4 py-3 text-gray-500 whitespace-nowrap text-xs"
+                        x-text="formatDate(f.mod_time)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+
+            <!-- Pagination -->
+            <div x-show="searchResult && searchResult.total > searchResult.per_page"
+              class="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50 text-sm text-gray-600">
+              <span x-text="'Page ' + searchPage + ' of ' + searchResult?.total_pages"></span>
+              <div class="flex gap-2">
+                <button @click="searchPage--" :disabled="searchPage <= 1"
+                  class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Prev</button>
+                <button @click="searchPage++" :disabled="searchPage >= searchResult?.total_pages"
+                  class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Next →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div><!-- end search page -->
+
+      <!-- ══════════════════════════════════════════════════════════════
+           SETTINGS PAGE
+           ══════════════════════════════════════════════════════════════ -->
+      <div x-show="page === 'settings'" class="p-6 max-w-3xl mx-auto">
+        <h1 class="text-xl font-semibold text-gray-800 mb-6">Settings</h1>
+
+        <!-- Read-only banner -->
+        <div x-show="serverSettings && serverSettings.readonly"
+          class="flex items-center gap-2 mb-6 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
+          <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 15v2m0 0v2m0-2h2m-2 0H10m2-8V7m0 0V5m0 2h2m-2 0H10"/>
+          </svg>
+          Server is running in <strong class="mx-1">read-only mode</strong> — write operations are disabled.
+        </div>
+
+        <!-- Server configuration -->
+        <section class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6">
+          <div class="px-5 py-4 border-b border-gray-100">
+            <h2 class="font-medium text-gray-800">Server configuration</h2>
+          </div>
+          <dl class="divide-y divide-gray-100">
+            <template x-if="serverSettings">
+              <div>
+                <div class="grid grid-cols-3 gap-4 px-5 py-3">
+                  <dt class="text-sm text-gray-500">Database path</dt>
+                  <dd class="col-span-2 text-sm font-mono text-gray-700 break-all"
+                      x-text="serverSettings.db_path || '(not set)'"></dd>
+                </div>
+                <div class="grid grid-cols-3 gap-4 px-5 py-3">
+                  <dt class="text-sm text-gray-500">Archive root</dt>
+                  <dd class="col-span-2 text-sm font-mono text-gray-700 break-all"
+                      x-text="serverSettings.archive_root || '(not set)'"></dd>
+                </div>
+                <div class="grid grid-cols-3 gap-4 px-5 py-3">
+                  <dt class="text-sm text-gray-500">Thumbnail cache</dt>
+                  <dd class="col-span-2 text-sm font-mono text-gray-700 break-all"
+                      x-text="serverSettings.thumb_dir || '(not set)'"></dd>
+                </div>
+                <div class="grid grid-cols-3 gap-4 px-5 py-3">
+                  <dt class="text-sm text-gray-500">Read-only mode</dt>
+                  <dd class="col-span-2">
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                          :class="serverSettings.readonly
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-green-100 text-green-700'"
+                          x-text="serverSettings.readonly ? 'Enabled' : 'Disabled'">
+                    </span>
+                  </dd>
+                </div>
+              </div>
+            </template>
+            <template x-if="!serverSettings">
+              <div class="px-5 py-6 text-center text-sm text-gray-400">Loading…</div>
+            </template>
+          </dl>
+        </section>
+
+        <!-- Archive statistics -->
+        <section class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6">
+          <div class="px-5 py-4 border-b border-gray-100">
+            <h2 class="font-medium text-gray-800">Archive statistics</h2>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-0 divide-x divide-gray-100">
+            <div class="px-5 py-4 text-center">
+              <p class="text-2xl font-bold text-gray-800" x-text="stats?.total_files?.toLocaleString() ?? '—'"></p>
+              <p class="text-xs text-gray-500 mt-0.5">Total files</p>
+            </div>
+            <div class="px-5 py-4 text-center">
+              <p class="text-2xl font-bold text-gray-800" x-text="stats ? formatBytes(stats.total_size) : '—'"></p>
+              <p class="text-xs text-gray-500 mt-0.5">Total size</p>
+            </div>
+            <div class="px-5 py-4 text-center">
+              <p class="text-2xl font-bold text-gray-800" x-text="stats?.duplicate_count?.toLocaleString() ?? '—'"></p>
+              <p class="text-xs text-gray-500 mt-0.5">Duplicates</p>
+            </div>
+            <div class="px-5 py-4 text-center">
+              <p class="text-2xl font-bold text-gray-800" x-text="stats?.type_count?.toLocaleString() ?? '—'"></p>
+              <p class="text-xs text-gray-500 mt-0.5">File types</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- About -->
+        <section class="bg-white rounded-xl border border-gray-200 shadow-sm">
+          <div class="px-5 py-4 border-b border-gray-100">
+            <h2 class="font-medium text-gray-800">About</h2>
+          </div>
+          <div class="px-5 py-4 space-y-1 text-sm text-gray-600">
+            <p><strong class="text-gray-800">filearchiver-web</strong> — web UI companion for the filearchiver CLI</p>
+            <p>Built with Go · Alpine.js · Tailwind CSS</p>
+            <p class="text-xs text-gray-400 pt-2">
+              For authentication, place this server behind a reverse proxy (nginx, Caddy, Traefik) with basic auth.
+              Use the <code class="bg-gray-100 px-1 rounded">-readonly</code> flag to disable all write operations.
+            </p>
+          </div>
+        </section>
+      </div><!-- end settings page -->
+
+    </main>
+  </div><!-- end body flex -->
+
+  <!-- ══════════════════════════════════════════════════════════════
+       DUPLICATE ACTION CONFIRM MODAL
+       ══════════════════════════════════════════════════════════════ -->
+  <div x-show="dupConfirmOpen"
+       class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center"
+       @click.self="dupConfirmOpen = false">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" @click.stop>
+      <h2 class="text-lg font-semibold mb-2" x-text="dupConfirmTitle"></h2>
+      <p class="text-sm text-gray-600 mb-3" x-text="dupConfirmMessage"></p>
+      <template x-if="dupConfirmPath">
+        <p class="text-xs font-mono bg-gray-50 rounded-lg px-3 py-2 text-gray-500 break-all mb-4"
+           x-text="dupConfirmPath"></p>
+      </template>
+      <div class="flex justify-end gap-2 mt-4">
+        <button @click="dupConfirmOpen = false"
+          class="px-4 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-100">Cancel</button>
+        <button @click="executeDupAction()"
+          class="px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors"
+          :class="dupConfirmDanger ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'"
+          x-text="dupConfirmAction">
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       CATEGORY MODAL (create / edit)
+       ══════════════════════════════════════════════════════════════ -->
+  <div x-show="catModalOpen"
+       class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center"
+       @click.self="catModalOpen = false">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6" @click.stop>
+      <h2 class="text-lg font-semibold mb-5"
+          x-text="catModalData.id ? 'Edit Category' : 'New Category'"></h2>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+          <input x-model="catModalData.name" type="text" placeholder="e.g. People"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            @keydown.enter="saveCategoryModal()" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Colour</label>
+          <div class="flex items-center gap-3">
+            <input x-model="catModalData.color" type="color"
+              class="h-9 w-16 rounded border border-gray-300 cursor-pointer" />
+            <span class="text-sm text-gray-500 font-mono" x-text="catModalData.color"></span>
+          </div>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 mt-6">
+        <button @click="catModalOpen = false"
+          class="px-4 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-100">Cancel</button>
+        <button @click="saveCategoryModal()"
+          :disabled="!catModalData.name"
+          class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-40">
+          Save
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       TAG MODAL (create / edit / merge)
+       ══════════════════════════════════════════════════════════════ -->
+  <div x-show="tagModalOpen"
+       class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center"
+       @click.self="tagModalOpen = false">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6" @click.stop>
+      <h2 class="text-lg font-semibold mb-5"
+          x-text="tagModalData.id ? 'Edit Tag' : 'New Tag'"></h2>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+          <input x-model="tagModalData.name" type="text" placeholder="e.g. Alice"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+          <select x-model="tagModalData.categoryId"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">— Uncategorised —</option>
+            <template x-for="cat in tagsPageCategories" :key="cat.id">
+              <option :value="cat.id" x-text="cat.name"></option>
+            </template>
+          </select>
+        </div>
+        <!-- Merge section (edit only) -->
+        <template x-if="tagModalData.id">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Merge into…</label>
+            <select x-model="tagModalData.mergeIntoId"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">— Don't merge —</option>
+              <template x-for="tag in allTagsForMerge" :key="tag.id">
+                <option :value="tag.id" x-text="tag.name + (tag.category_name ? ' (' + tag.category_name + ')' : '')"></option>
+              </template>
+            </select>
+            <p class="text-xs text-gray-400 mt-1">Merging moves all file associations to the target tag, then deletes this one.</p>
+          </div>
+        </template>
+      </div>
+      <div class="flex justify-end gap-2 mt-6">
+        <button @click="tagModalOpen = false"
+          class="px-4 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-100">Cancel</button>
+        <button @click="saveTagModal()"
+          :disabled="!tagModalData.name"
+          class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium disabled:opacity-40">
+          <span x-text="tagModalData.mergeIntoId ? 'Merge' : 'Save'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       CONFIRM DELETE MODAL
+       ══════════════════════════════════════════════════════════════ -->
+  <div x-show="confirmDeleteModalOpen"
+       class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center"
+       @click.self="confirmDeleteModalOpen = false">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6" @click.stop>
+      <h2 class="text-lg font-semibold mb-2">Confirm Delete</h2>
+      <p class="text-sm text-gray-600 mb-6">
+        Are you sure you want to delete
+        <strong x-text="confirmDeleteTarget?.name"></strong>?
+        This cannot be undone.
+      </p>
+      <div class="flex justify-end gap-2">
+        <button @click="confirmDeleteModalOpen = false"
+          class="px-4 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-100">Cancel</button>
+        <button @click="executeDelete()"
+          class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium">
+          Delete
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MEDIA VIEWER MODAL
+       ══════════════════════════════════════════════════════════════ -->
+  <div x-show="viewerOpen" x-transition:enter="transition ease-out duration-150"
+       x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+       x-transition:leave="transition ease-in duration-100"
+       x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+       class="fixed inset-0 z-50 bg-black/90 flex flex-col"
+       @click.self="closeViewer()">
+
+    <!-- Toolbar -->
+    <div class="flex-shrink-0 flex items-center gap-3 px-4 py-2 bg-black/60 backdrop-blur-sm border-b border-white/10 text-white">
+      <!-- Prev / Next -->
+      <button @click="prevFile()" :disabled="viewerIndex <= 0"
+              class="p-1.5 rounded hover:bg-white/10 disabled:opacity-30 transition-colors" title="Previous (←)">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+      </button>
+      <button @click="nextFile()" :disabled="viewerIndex >= files.length - 1"
+              class="p-1.5 rounded hover:bg-white/10 disabled:opacity-30 transition-colors" title="Next (→)">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </button>
+
+      <!-- Filename -->
+      <span class="flex-1 truncate text-sm font-medium text-white/90" x-text="viewerFile?.file_name"></span>
+      <span class="text-xs text-white/50 font-mono hidden sm:block"
+            x-text="viewerFile ? formatBytes(viewerFile.size) : ''"></span>
+      <span class="text-xs text-white/40 hidden md:block"
+            x-text="viewerFile ? (viewerIndex + 1) + ' / ' + files.length : ''"></span>
+
+      <!-- Download -->
+      <a :href="viewerFile ? downloadURL(viewerFile.id) : '#'"
+         class="p-1.5 rounded hover:bg-white/10 transition-colors text-white/80 hover:text-white" title="Download">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+        </svg>
+      </a>
+
+      <!-- Info sidebar toggle -->
+      <button @click="viewerSidebarOpen = !viewerSidebarOpen"
+              :class="viewerSidebarOpen ? 'bg-white/20' : 'hover:bg-white/10'"
+              class="p-1.5 rounded transition-colors text-white/80 hover:text-white" title="File info">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      </button>
+
+      <!-- Close -->
+      <button @click="closeViewer()"
+              class="p-1.5 rounded hover:bg-white/10 transition-colors text-white/80 hover:text-white" title="Close (Esc)">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Content + Sidebar -->
+    <div class="flex flex-1 overflow-hidden">
+
+      <!-- Media content area -->
+      <div class="flex-1 overflow-auto flex items-center justify-center p-4 min-w-0">
+
+        <!-- IMAGE -->
+        <template x-if="viewerType === 'image'">
+          <img :src="viewerFile ? contentURL(viewerFile.id) : ''"
+               :alt="viewerFile?.file_name"
+               class="max-w-full max-h-full object-contain rounded shadow-2xl select-none"
+               style="max-height: calc(100vh - 120px)" />
+        </template>
+
+        <!-- VIDEO -->
+        <template x-if="viewerType === 'video'">
+          <video :src="viewerFile ? contentURL(viewerFile.id) : ''"
+                 controls autoplay
+                 class="max-w-full max-h-full rounded shadow-2xl"
+                 style="max-height: calc(100vh - 120px)">
+          </video>
+        </template>
+
+        <!-- AUDIO -->
+        <template x-if="viewerType === 'audio'">
+          <div class="flex flex-col items-center gap-6 text-white">
+            <div class="w-32 h-32 rounded-full flex items-center justify-center"
+                 :style="'background:' + (viewerFile ? extColor(viewerFile.extension) : '#6b7280') + '30'">
+              <svg class="w-16 h-16 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                      d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/>
+              </svg>
+            </div>
+            <p class="text-white/80 font-medium" x-text="viewerFile?.file_name"></p>
+            <audio :src="viewerFile ? contentURL(viewerFile.id) : ''"
+                   controls autoplay class="w-80 max-w-full mt-2">
+            </audio>
+          </div>
+        </template>
+
+        <!-- PDF -->
+        <template x-if="viewerType === 'pdf'">
+          <iframe :src="viewerFile ? contentURL(viewerFile.id) : ''"
+                  class="w-full rounded shadow-2xl bg-white border border-white/10"
+                  style="height: calc(100vh - 120px)">
+          </iframe>
+        </template>
+
+        <!-- TEXT -->
+        <template x-if="viewerType === 'text'">
+          <div class="w-full h-full overflow-auto">
+            <div x-show="viewerTextLoading" class="text-white/50 text-sm text-center py-12">Loading…</div>
+            <pre x-show="!viewerTextLoading"
+                 class="viewer-text text-green-300 text-xs leading-relaxed p-4 whitespace-pre-wrap break-all"
+                 x-html="viewerTextContent"></pre>
+          </div>
+        </template>
+
+        <!-- OTHER / unsupported -->
+        <template x-if="viewerType === 'other'">
+          <div class="flex flex-col items-center gap-4 text-white/60">
+            <svg class="w-20 h-20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1"
+                    d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+            </svg>
+            <p class="text-lg font-medium text-white/70" x-text="viewerFile?.file_name"></p>
+            <p class="text-sm">Preview not available for this file type.</p>
+            <a :href="viewerFile ? downloadURL(viewerFile.id) : '#'"
+               class="mt-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors">
+              Download
+            </a>
+          </div>
+        </template>
+
+      </div>
+
+      <!-- Metadata Sidebar -->
+      <div x-show="viewerSidebarOpen"
+           class="flex-shrink-0 w-72 bg-gray-900 border-l border-white/10 flex flex-col overflow-hidden text-white text-sm">
+
+        <!-- Tabs -->
+        <div class="flex border-b border-white/10">
+          <button @click="viewerTab = 'info'"
+                  :class="viewerTab === 'info' ? 'border-b-2 border-blue-400 text-white' : 'text-white/50 hover:text-white/80'"
+                  class="flex-1 py-2.5 text-xs font-medium transition-colors">Info</button>
+          <button @click="loadViewerHistory()"
+                  :class="viewerTab === 'history' ? 'border-b-2 border-blue-400 text-white' : 'text-white/50 hover:text-white/80'"
+                  class="flex-1 py-2.5 text-xs font-medium transition-colors">History</button>
+        </div>
+
+        <!-- Info tab -->
+        <div x-show="viewerTab === 'info'" class="flex-1 overflow-y-auto p-4 space-y-3">
+          <template x-if="viewerFile">
+            <div class="space-y-3">
+              <div>
+                <p class="text-white/40 text-xs uppercase tracking-wide mb-1">Filename</p>
+                <p class="break-all font-mono text-xs text-white/90" x-text="viewerFile.file_name"></p>
+              </div>
+              <div>
+                <p class="text-white/40 text-xs uppercase tracking-wide mb-1">Extension</p>
+                <span class="inline-flex items-center gap-1.5 text-xs">
+                  <span class="w-2 h-2 rounded-sm" :style="'background:' + extColor(viewerFile.extension)"></span>
+                  <span class="font-mono" x-text="'.' + (viewerFile.extension || '–')"></span>
+                </span>
+              </div>
+              <div>
+                <p class="text-white/40 text-xs uppercase tracking-wide mb-1">Size</p>
+                <p class="text-white/80" x-text="formatBytes(viewerFile.size)"></p>
+              </div>
+              <div>
+                <p class="text-white/40 text-xs uppercase tracking-wide mb-1">Modified</p>
+                <p class="text-white/80" x-text="formatDateTime(viewerFile.mod_time)"></p>
+              </div>
+              <template x-if="viewerFile.is_duplicate">
+                <div class="bg-yellow-500/20 border border-yellow-500/30 rounded-lg px-3 py-2">
+                  <p class="text-yellow-300 text-xs font-medium">⚠ Duplicate file</p>
+                </div>
+              </template>
+              <div>
+                <p class="text-white/40 text-xs uppercase tracking-wide mb-1">Archive path</p>
+                <p class="break-all font-mono text-xs text-white/60" x-text="viewerFile.archive_path"></p>
+              </div>
+              <template x-if="viewerFile.original_path">
+                <div>
+                  <p class="text-white/40 text-xs uppercase tracking-wide mb-1">Original path</p>
+                  <p class="break-all font-mono text-xs text-white/60" x-text="viewerFile.original_path"></p>
+                </div>
+              </template>
+              <template x-if="viewerFile.checksum">
+                <div>
+                  <p class="text-white/40 text-xs uppercase tracking-wide mb-1">Checksum</p>
+                  <p class="break-all font-mono text-xs text-white/40" x-text="viewerFile.checksum"></p>
+                </div>
+              </template>
+
+              <!-- ── Tags editor ── -->
+              <div>
+                <div class="flex items-center justify-between mb-2">
+                  <p class="text-white/40 text-xs uppercase tracking-wide">Tags</p>
+                </div>
+                <div class="flex flex-wrap gap-1.5 mb-2">
+                  <template x-if="viewerFileTags.length === 0">
+                    <span class="text-white/30 text-xs italic">No tags</span>
+                  </template>
+                  <template x-for="tag in viewerFileTags" :key="tag.id">
+                    <span class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs text-white"
+                          :style="'background:' + (tag.category_color || '#6b7280')">
+                      <span x-text="tag.name"></span>
+                      <button @click="removeTagFromViewer(tag.id)"
+                        class="p-0.5 rounded-full hover:bg-white/20 transition-colors">
+                        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                      </button>
+                    </span>
+                  </template>
+                </div>
+                <!-- Add tag typeahead -->
+                <div class="relative">
+                  <input x-model="viewerTagSearch" type="text" placeholder="Add tag…"
+                    class="w-full px-2.5 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    @input="filterViewerTags()" @focus="viewerTagDropdownOpen = true"
+                    @keydown.escape="viewerTagDropdownOpen = false" />
+                  <div x-show="viewerTagDropdownOpen && viewerTagSearch.length > 0"
+                       class="absolute bottom-full mb-1 w-full bg-gray-800 border border-white/10 rounded-lg shadow-xl z-10 max-h-40 overflow-y-auto">
+                    <template x-if="viewerTagSuggestions.length === 0">
+                      <div class="px-3 py-2 text-xs text-white/40 italic">No matching tags</div>
+                    </template>
+                    <template x-for="tag in viewerTagSuggestions" :key="tag.id">
+                      <button @click="addTagFromViewer(tag)"
+                        class="w-full text-left px-3 py-1.5 text-xs text-white hover:bg-white/10 transition-colors flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full flex-shrink-0"
+                              :style="'background:' + (tag.category_color || '#6b7280')"></span>
+                        <span x-text="tag.name"></span>
+                        <span class="text-white/40 ml-auto" x-text="tag.category_name"></span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- History tab -->
+        <div x-show="viewerTab === 'history'" class="flex-1 overflow-y-auto p-4">
+          <div x-show="viewerHistoryLoading" class="text-white/40 text-xs text-center py-8">Loading…</div>
+          <div x-show="!viewerHistoryLoading && viewerFileHistory.length === 0"
+               class="text-white/40 text-xs text-center py-8">No history found for this file.</div>
+          <div class="space-y-3">
+            <template x-for="h in viewerFileHistory" :key="h.id">
+              <div class="border border-white/10 rounded-lg p-3 space-y-1">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-white/70" x-text="h.job_name"></span>
+                  <span class="text-xs px-1.5 py-0.5 rounded"
+                        :class="h.status === 'success' ? 'bg-green-500/20 text-green-300' :
+                                h.status === 'error' ? 'bg-red-500/20 text-red-300' : 'bg-white/10 text-white/50'"
+                        x-text="h.status"></span>
+                </div>
+                <p class="text-xs text-white/50" x-text="formatDateTime(h.timestamp)"></p>
+                <p class="text-xs text-white/40 break-all leading-relaxed" x-text="h.message"></p>
+              </div>
+            </template>
+          </div>
+        </div>
+
+      </div><!-- end sidebar -->
+    </div><!-- end content+sidebar -->
+  </div><!-- end viewer modal -->
+
+  <!-- Toast notification -->
+  <div x-show="toastVisible" x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="opacity-0 translate-y-2"
+       x-transition:enter-end="opacity-100 translate-y-0"
+       x-transition:leave="transition ease-in duration-150"
+       x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+       class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl bg-gray-900 text-white text-sm shadow-xl"
+       x-text="toastMsg">
+  </div>
+
+</body>
+</html>
