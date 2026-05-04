@@ -1,0 +1,39 @@
+# Build stage — pure Go, no CGO needed (modernc.org/sqlite is CGO-free)
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /build
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy all source including embedded web assets
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-s -w' -o filearchiver-web ./cmd/web/
+
+# Runtime stage — minimal image
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates tzdata
+
+# Create non-root user
+RUN addgroup -S archiver && adduser -S archiver -G archiver
+
+WORKDIR /app
+
+COPY --from=builder /build/filearchiver-web /app/filearchiver-web
+
+# /data/db   → mount your filearchiver.db here
+# /data/archive → mount your archive root here
+# /data/thumbs  → thumbnail cache (optional, can be tmpfs)
+RUN mkdir -p /data/db /data/archive /data/thumbs && \
+    chown -R archiver:archiver /data
+
+VOLUME ["/data/db", "/data/archive", "/data/thumbs"]
+
+USER archiver
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/filearchiver-web"]
+CMD ["-db", "/data/db/filearchiver.db", "-archive", "/data/archive", "-thumbdir", "/data/thumbs", "-port", "8080", "-host", "0.0.0.0"]
