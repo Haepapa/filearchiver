@@ -107,6 +107,56 @@ func seedHistory(t *testing.T, database *sql.DB) {
 }
 
 // ---------------------------------------------------------------------------
+// Open / pragma tests
+// ---------------------------------------------------------------------------
+
+func TestOpenEnablesWAL(t *testing.T) {
+	f, err := os.CreateTemp("", "fatest-wal-*.db")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	f.Close()
+	t.Cleanup(func() { os.Remove(f.Name()) })
+
+	database, err := db.Open(f.Name())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer database.Close()
+
+	var mode string
+	if err := database.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil {
+		t.Fatalf("query journal_mode: %v", err)
+	}
+	if mode != "wal" {
+		t.Errorf("expected journal_mode=wal, got %q", mode)
+	}
+}
+
+func TestOpenEnablesForeignKeys(t *testing.T) {
+	f, err := os.CreateTemp("", "fatest-fk-*.db")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	f.Close()
+	t.Cleanup(func() { os.Remove(f.Name()) })
+
+	database, err := db.Open(f.Name())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer database.Close()
+
+	var fk int
+	if err := database.QueryRow(`PRAGMA foreign_keys`).Scan(&fk); err != nil {
+		t.Fatalf("query foreign_keys: %v", err)
+	}
+	if fk != 1 {
+		t.Errorf("expected foreign_keys=1, got %d", fk)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Migration tests
 // ---------------------------------------------------------------------------
 

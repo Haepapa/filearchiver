@@ -7,21 +7,32 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Open opens the SQLite database at path with foreign keys enabled.
+// Open opens the SQLite database at path with sensible pragmas for concurrent
+// use. It is safe to call from both the CLI archiver and the web UI server
+// pointing at the same .db file.
 func Open(path string) (*sql.DB, error) {
 	database, err := sql.Open("sqlite", path+"?_foreign_keys=on")
 	if err != nil {
 		return nil, err
 	}
-	// SQLite performs best with a single writer connection.
+	// Single writer keeps SQLite from serialisation errors.
 	database.SetMaxOpenConns(1)
 	if err := database.Ping(); err != nil {
 		return nil, fmt.Errorf("cannot connect to database: %w", err)
 	}
-	// Ensure foreign key constraints are enforced (modernc.org/sqlite ignores
-	// the DSN pragma on some versions).
-	if _, err := database.Exec(`PRAGMA foreign_keys = ON`); err != nil {
-		return nil, fmt.Errorf("enable foreign keys: %w", err)
+
+	// Run pragmas explicitly — modernc.org/sqlite ignores some DSN params.
+	pragmas := []string{
+		`PRAGMA foreign_keys = ON`,
+		// WAL mode allows concurrent reads while the CLI archiver is writing.
+		`PRAGMA journal_mode = WAL`,
+		// Wait up to 5 s before returning SQLITE_BUSY on a write conflict.
+		`PRAGMA busy_timeout = 5000`,
+	}
+	for _, p := range pragmas {
+		if _, err := database.Exec(p); err != nil {
+			return nil, fmt.Errorf("pragma %q: %w", p, err)
+		}
 	}
 	return database, nil
 }
