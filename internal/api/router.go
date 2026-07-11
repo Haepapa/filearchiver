@@ -54,6 +54,17 @@ func NewRouter(cfg Config) http.Handler {
 			r.Post("/{id}/promote", readonlyGuard(cfg, handlePromoteDuplicate(cfg)))
 		})
 
+		r.Route("/trash", func(r chi.Router) {
+			r.Get("/", handleListTrash(cfg))
+			r.Delete("/", readonlyGuard(cfg, handleEmptyTrash(cfg)))
+			r.Post("/{id}/restore", readonlyGuard(cfg, handleRestoreTrash(cfg)))
+			r.Delete("/{id}", readonlyGuard(cfg, handlePermanentlyDeleteTrash(cfg)))
+		})
+
+		r.Route("/file-actions", func(r chi.Router) {
+			r.Get("/", handleListFileActions(cfg))
+		})
+
 		r.Route("/history", func(r chi.Router) {
 			r.Get("/", handleListHistory(cfg))
 			r.Get("/recent", handleGetRecentHistory(cfg))

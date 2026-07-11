@@ -32,7 +32,7 @@ func GetStats(database *sql.DB) (*Stats, error) {
 	stats := &Stats{}
 
 	if err := database.QueryRow(
-		`SELECT COUNT(*), COALESCE(SUM(size), 0) FROM file_registry`,
+		`SELECT COUNT(*), COALESCE(SUM(size), 0) FROM file_registry WHERE trashed_at IS NULL`,
 	).Scan(&stats.TotalFiles, &stats.TotalSize); err != nil {
 		return nil, fmt.Errorf("stats query: %w", err)
 	}
@@ -44,7 +44,7 @@ func GetStats(database *sql.DB) (*Stats, error) {
 		return nil, fmt.Errorf("tagged files query: %w", err)
 	}
 
-	rows, err := database.Query(`SELECT file_name, size FROM file_registry`)
+	rows, err := database.Query(`SELECT file_name, size FROM file_registry WHERE trashed_at IS NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("extension query: %w", err)
 	}
