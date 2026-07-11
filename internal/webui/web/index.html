@@ -32,7 +32,7 @@
       <span class="text-lg font-semibold tracking-tight">filearchiver</span>
     </div>
     <nav class="flex gap-1">
-      <template x-for="[id, label] in [['dashboard','Dashboard'],['files','Files'],['search','Search'],['duplicates','Duplicates'],['tags','Tags'],['history','History'],['settings','Settings']]" :key="id">
+      <template x-for="[id, label] in [['dashboard','Dashboard'],['files','Files'],['search','Search'],['duplicates','Duplicates'],['tags','Tags'],['history','History'],['trash','Trash'],['settings','Settings']]" :key="id">
         <button @click="page = id"
           :class="page === id ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
           class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -468,93 +468,180 @@
       <!-- ════════════════ HISTORY ════════════════ -->
       <div x-show="page === 'history'" class="p-6 max-w-6xl mx-auto">
         <div class="flex items-center justify-between mb-4">
-          <h1 class="text-2xl font-bold">Archive History</h1>
-          <!-- Status filter -->
-          <select x-model="historyStatusFilter"
-            class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">All statuses</option>
-            <option value="SUCCESS">Success</option>
-            <option value="FAILED">Failed</option>
-            <option value="SKIPPED">Skipped</option>
-          </select>
-        </div>
-
-        <!-- Additional filters row -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <input type="text" x-model.debounce.400ms="historyJobFilter"
-            placeholder="Job name…"
-            class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <input type="text" x-model.debounce.400ms="historyMessageFilter"
-            placeholder="Message contains…"
-            class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <input type="date" x-model="historyFromDate" title="From date"
-            class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <input type="date" x-model="historyToDate" title="To date"
-            class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        </div>
-
-        <!-- Summary bar -->
-        <div x-show="historyResult" class="grid grid-cols-3 gap-4 mb-6">
-          <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm text-center">
-            <p class="text-2xl font-bold text-gray-800" x-text="historyResult?.total?.toLocaleString() ?? 0"></p>
-            <p class="text-xs text-gray-500 mt-0.5">Total entries</p>
-          </div>
-          <div class="bg-green-50 rounded-xl border border-green-100 p-4 shadow-sm text-center">
-            <p class="text-2xl font-bold text-green-700" x-text="history.filter(h=>h.status==='SUCCESS').length"></p>
-            <p class="text-xs text-green-600 mt-0.5">Success (this page)</p>
-          </div>
-          <div class="bg-red-50 rounded-xl border border-red-100 p-4 shadow-sm text-center">
-            <p class="text-2xl font-bold text-red-700" x-text="history.filter(h=>h.status==='FAILED').length"></p>
-            <p class="text-xs text-red-600 mt-0.5">Failed (this page)</p>
+          <h1 class="text-2xl font-bold">History</h1>
+          <!-- Sub-tab toggle -->
+          <div class="flex border border-gray-300 rounded-lg overflow-hidden">
+            <button @click="historySubTab = 'archive'"
+              :class="historySubTab === 'archive' ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-600 hover:bg-gray-50'"
+              class="px-4 py-2 text-sm font-medium transition-colors">Archive Log</button>
+            <button @click="historySubTab = 'actions'; loadFileActions()"
+              :class="historySubTab === 'actions' ? 'bg-blue-50 text-blue-700' : 'bg-white text-gray-600 hover:bg-gray-50'"
+              class="px-4 py-2 text-sm font-medium border-l border-gray-300 transition-colors">File Actions</button>
           </div>
         </div>
 
-        <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <table class="w-full text-sm">
-            <thead class="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Timestamp</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Job</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Message</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-              <template x-for="h in history" :key="h.id">
-                <tr class="hover:bg-gray-50 transition-colors">
-                  <td class="px-4 py-3 text-gray-500 whitespace-nowrap text-xs"
-                    x-text="formatDateTime(h.timestamp)"></td>
-                  <td class="px-4 py-3 font-mono text-xs text-gray-600" x-text="h.job_name"></td>
-                  <td class="px-4 py-3">
-                    <span class="px-2 py-0.5 rounded-full text-xs font-medium"
-                      :class="{
-                        'bg-green-100 text-green-700': h.status === 'SUCCESS',
-                        'bg-red-100   text-red-700':   h.status === 'FAILED',
-                        'bg-gray-100  text-gray-600':  h.status === 'SKIPPED'
-                      }" x-text="h.status"></span>
-                  </td>
-                  <td class="px-4 py-3 text-gray-500 text-xs font-mono truncate max-w-sm"
-                    x-text="h.message"></td>
-                </tr>
-              </template>
-              <tr x-show="history.length === 0 && !historyLoading">
-                <td colspan="4" class="px-4 py-12 text-center text-gray-400">No history entries</td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- ── Archive Log sub-tab ── -->
+        <div x-show="historySubTab === 'archive'">
+          <!-- Filters row -->
+          <div class="flex flex-wrap items-center gap-3 mb-6">
+            <select x-model="historyStatusFilter"
+              class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">All statuses</option>
+              <option value="SUCCESS">Success</option>
+              <option value="FAILED">Failed</option>
+              <option value="SKIPPED">Skipped</option>
+            </select>
+            <input type="text" x-model.debounce.400ms="historyJobFilter"
+              placeholder="Job name…"
+              class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <input type="text" x-model.debounce.400ms="historyMessageFilter"
+              placeholder="Message contains…"
+              class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <input type="date" x-model="historyFromDate" title="From date"
+              class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <input type="date" x-model="historyToDate" title="To date"
+              class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
 
-          <div x-show="historyResult && historyResult.total > historyResult.per_page"
-            class="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50 text-sm text-gray-600">
-            <span x-text="'Total: ' + historyResult?.total?.toLocaleString() + ' entries'"></span>
-            <div class="flex gap-2">
-              <button @click="historyPage--" :disabled="historyPage <= 1"
-                class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Previous</button>
-              <button @click="historyPage++" :disabled="historyPage >= historyResult?.total_pages"
-                class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Next →</button>
+          <!-- Summary bar -->
+          <div x-show="historyResult" class="grid grid-cols-3 gap-4 mb-6">
+            <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm text-center">
+              <p class="text-2xl font-bold text-gray-800" x-text="historyResult?.total?.toLocaleString() ?? 0"></p>
+              <p class="text-xs text-gray-500 mt-0.5">Total entries</p>
+            </div>
+            <div class="bg-green-50 rounded-xl border border-green-100 p-4 shadow-sm text-center">
+              <p class="text-2xl font-bold text-green-700" x-text="history.filter(h=>h.status==='SUCCESS').length"></p>
+              <p class="text-xs text-green-600 mt-0.5">Success (this page)</p>
+            </div>
+            <div class="bg-red-50 rounded-xl border border-red-100 p-4 shadow-sm text-center">
+              <p class="text-2xl font-bold text-red-700" x-text="history.filter(h=>h.status==='FAILED').length"></p>
+              <p class="text-xs text-red-600 mt-0.5">Failed (this page)</p>
             </div>
           </div>
-        </div>
-      </div>
+
+          <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Timestamp</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Job</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Message</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                <template x-for="h in history" :key="h.id">
+                  <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-4 py-3 text-gray-500 whitespace-nowrap text-xs"
+                      x-text="formatDateTime(h.timestamp)"></td>
+                    <td class="px-4 py-3 font-mono text-xs text-gray-600" x-text="h.job_name"></td>
+                    <td class="px-4 py-3">
+                      <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                        :class="{
+                          'bg-green-100 text-green-700': h.status === 'SUCCESS',
+                          'bg-red-100   text-red-700':   h.status === 'FAILED',
+                          'bg-gray-100  text-gray-600':  h.status === 'SKIPPED'
+                        }" x-text="h.status"></span>
+                    </td>
+                    <td class="px-4 py-3 text-gray-500 text-xs font-mono truncate max-w-sm"
+                      x-text="h.message"></td>
+                  </tr>
+                </template>
+                <tr x-show="history.length === 0 && !historyLoading">
+                  <td colspan="4" class="px-4 py-12 text-center text-gray-400">No history entries</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div x-show="historyResult && historyResult.total > historyResult.per_page"
+              class="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50 text-sm text-gray-600">
+              <span x-text="'Total: ' + historyResult?.total?.toLocaleString() + ' entries'"></span>
+              <div class="flex gap-2">
+                <button @click="historyPage--" :disabled="historyPage <= 1"
+                  class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Previous</button>
+                <button @click="historyPage++" :disabled="historyPage >= historyResult?.total_pages"
+                  class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Next →</button>
+              </div>
+            </div>
+          </div>
+        </div><!-- end archive log sub-tab -->
+
+        <!-- ── File Actions sub-tab ── -->
+        <div x-show="historySubTab === 'actions'">
+          <!-- Filters -->
+          <div class="flex flex-wrap items-center gap-3 mb-6">
+            <select x-model="fileActionsFilter"
+              class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">All actions</option>
+              <option value="trashed">Trashed</option>
+              <option value="restored">Restored</option>
+              <option value="permanently_deleted">Permanently Deleted</option>
+            </select>
+            <input type="text" x-model.debounce.400ms="fileActionsSearch"
+              placeholder="Search filename or path…"
+              class="flex-1 min-w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+
+          <!-- Loading -->
+          <div x-show="fileActionsLoading" class="text-center text-gray-400 py-12">
+            <svg class="animate-spin w-5 h-5 mx-auto mb-2" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+            </svg>
+            Loading…
+          </div>
+
+          <div x-show="!fileActionsLoading" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Timestamp</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">File</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Action</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide hidden md:table-cell">Path at time of action</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide hidden lg:table-cell">Notes</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                <template x-for="a in fileActions" :key="a.id">
+                  <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-4 py-3 text-gray-500 whitespace-nowrap text-xs"
+                      x-text="formatDateTime(a.performed_at)"></td>
+                    <td class="px-4 py-3 font-medium truncate max-w-xs" x-text="a.file_name"></td>
+                    <td class="px-4 py-3">
+                      <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                        :class="{
+                          'bg-red-100    text-red-700':    a.action === 'trashed',
+                          'bg-green-100  text-green-700':  a.action === 'restored',
+                          'bg-gray-900   text-gray-100':   a.action === 'permanently_deleted'
+                        }" x-text="a.action.replace(/_/g,' ')"></span>
+                    </td>
+                    <td class="px-4 py-3 text-gray-400 text-xs font-mono truncate max-w-xs hidden md:table-cell"
+                      x-text="a.archive_path"></td>
+                    <td class="px-4 py-3 text-gray-400 text-xs hidden lg:table-cell"
+                      x-text="a.notes"></td>
+                  </tr>
+                </template>
+                <tr x-show="fileActions.length === 0 && !fileActionsLoading">
+                  <td colspan="5" class="px-4 py-12 text-center text-gray-400">No file actions recorded yet</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div x-show="fileActionsResult && fileActionsResult.total > fileActionsResult.per_page"
+              class="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50 text-sm text-gray-600">
+              <span x-text="'Total: ' + fileActionsResult?.total?.toLocaleString() + ' entries'"></span>
+              <div class="flex gap-2">
+                <button @click="fileActionsPage--" :disabled="fileActionsPage <= 1"
+                  class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Previous</button>
+                <button @click="fileActionsPage++" :disabled="fileActionsPage >= fileActionsResult?.total_pages"
+                  class="px-3 py-1.5 rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Next →</button>
+              </div>
+            </div>
+          </div>
+        </div><!-- end file actions sub-tab -->
+
+      </div><!-- end history page -->
 
       <!-- ══════════════════════════════════════════════════════════════
            TAGS PAGE
@@ -1103,6 +1190,103 @@
         </section>
       </div><!-- end settings page -->
 
+      <!-- ════════════════ TRASH ════════════════ -->
+      <div x-show="page === 'trash'" class="p-6 max-w-6xl mx-auto">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h1 class="text-xl font-semibold text-gray-800">Trash</h1>
+            <p class="text-sm text-gray-500 mt-0.5"
+               x-text="trashFiles.length + ' file' + (trashFiles.length === 1 ? '' : 's') + ' in trash'"></p>
+          </div>
+          <button @click="emptyTrash()"
+                  :disabled="trashFiles.length === 0 || (serverSettings && serverSettings.readonly)"
+                  class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium disabled:opacity-40 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            </svg>
+            Empty Trash
+          </button>
+        </div>
+
+        <!-- Info banner -->
+        <div class="flex items-start gap-2 mb-6 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
+          <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          Files in Trash are hidden from the archive but still on disk. Restore them to bring them back, or delete permanently to free disk space.
+        </div>
+
+        <!-- Loading -->
+        <div x-show="trashLoading" class="text-center text-gray-400 py-16">
+          <svg class="animate-spin w-6 h-6 mx-auto mb-3" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+          </svg>
+          Loading…
+        </div>
+
+        <!-- Empty state -->
+        <div x-show="!trashLoading && trashFiles.length === 0"
+          class="bg-white rounded-xl border border-gray-200 p-16 text-center shadow-sm">
+          <svg class="w-12 h-12 mx-auto mb-3 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <p class="text-gray-500 font-medium">Trash is empty</p>
+        </div>
+
+        <!-- Trash file list -->
+        <div x-show="!trashLoading && trashFiles.length > 0"
+          class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Name</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Type</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">Size</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Trashed</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide hidden lg:table-cell">Restore path</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <template x-for="f in trashFiles" :key="f.id">
+                <tr class="hover:bg-gray-50 transition-colors">
+                  <td class="px-4 py-3 font-medium truncate max-w-xs" x-text="f.file_name"></td>
+                  <td class="px-4 py-3">
+                    <span class="inline-flex items-center gap-1">
+                      <span class="w-2 h-2 rounded-sm inline-block"
+                        :style="'background:' + extColor(f.extension)"></span>
+                      <span class="font-mono text-xs text-gray-600" x-text="f.extension || 'none'"></span>
+                    </span>
+                  </td>
+                  <td class="px-4 py-3 text-right text-gray-500 tabular-nums" x-text="formatBytes(f.size)"></td>
+                  <td class="px-4 py-3 text-gray-500 whitespace-nowrap text-xs" x-text="formatDateTime(f.trashed_at)"></td>
+                  <td class="px-4 py-3 text-gray-400 text-xs font-mono truncate max-w-xs hidden lg:table-cell"
+                    x-text="f.restore_path"></td>
+                  <td class="px-4 py-3">
+                    <div class="flex items-center justify-end gap-2">
+                      <button @click="restoreTrashFile(f)"
+                              :disabled="serverSettings && serverSettings.readonly"
+                              class="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium disabled:opacity-40 transition-colors">
+                        ↩ Restore
+                      </button>
+                      <button @click="permanentlyDeleteTrashFile(f)"
+                              :disabled="serverSettings && serverSettings.readonly"
+                              class="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 text-xs font-medium disabled:opacity-40 transition-colors">
+                        Delete permanently
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div><!-- end trash page -->
+
     </main>
   </div><!-- end body flex -->
 
@@ -1393,6 +1577,9 @@
           <button @click="loadViewerHistory()"
                   :class="viewerTab === 'history' ? 'border-b-2 border-blue-400 text-white' : 'text-white/50 hover:text-white/80'"
                   class="flex-1 py-2.5 text-xs font-medium transition-colors">History</button>
+          <button @click="viewerTab = 'manage'"
+                  :class="viewerTab === 'manage' ? 'border-b-2 border-red-400 text-white' : 'text-white/50 hover:text-white/80'"
+                  class="flex-1 py-2.5 text-xs font-medium transition-colors">Manage</button>
         </div>
 
         <!-- Info tab -->
@@ -1509,6 +1696,38 @@
               </div>
             </template>
           </div>
+        </div>
+
+        <!-- Manage tab -->
+        <div x-show="viewerTab === 'manage'" class="flex-1 overflow-y-auto p-4 space-y-4">
+          <template x-if="viewerFile">
+            <div class="space-y-4">
+              <div class="bg-white/5 border border-white/10 rounded-lg p-3">
+                <p class="text-white/70 text-xs leading-relaxed">
+                  Moving a file to Trash removes it from the archive view.
+                  You can restore it or permanently delete it from the
+                  <button @click="closeViewer(); page='trash'" class="underline hover:text-white">Trash</button> page.
+                </p>
+              </div>
+              <template x-if="viewerFile && viewerFile.is_duplicate">
+                <div class="bg-yellow-500/20 border border-yellow-500/30 rounded-lg px-3 py-2">
+                  <p class="text-yellow-300 text-xs font-medium">⚠ This is a duplicate file</p>
+                </div>
+              </template>
+              <button @click="trashViewerFile()"
+                      :disabled="serverSettings && serverSettings.readonly"
+                      class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+                Move to Trash
+              </button>
+              <template x-if="serverSettings && serverSettings.readonly">
+                <p class="text-white/30 text-xs text-center">Server is in read-only mode</p>
+              </template>
+            </div>
+          </template>
         </div>
 
       </div><!-- end sidebar -->

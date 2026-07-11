@@ -93,7 +93,7 @@ func handleGetFileHistory(cfg Config) http.HandlerFunc {
 			return
 		}
 
-		entries, err := db.GetHistoryForFile(cfg.DB, file.ArchivePath)
+		entries, err := db.GetHistoryForFile(cfg.DB, file.ID, file.ArchivePath)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

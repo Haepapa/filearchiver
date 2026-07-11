@@ -3,16 +3,19 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"sort"
 	"time"
 )
 
-// HistoryEntry is a row from the history table.
+// HistoryEntry is a row from the history table (or a synthesised entry from
+// file_actions). The Source field distinguishes the two origins.
 type HistoryEntry struct {
 	ID        int64     `json:"id"`
 	Timestamp time.Time `json:"timestamp"`
 	JobName   string    `json:"job_name"`
 	Status    string    `json:"status"`
 	Message   string    `json:"message"`
+	Source    string    `json:"source,omitempty"` // "archive" | "web_ui"
 }
 
 // HistoryListParams holds filter/pagination options for ListHistory.
@@ -131,10 +134,11 @@ func joinConditions(conds []string) string {
 	return result
 }
 
-// GetHistoryForFile returns the most recent history entries whose message
-// references the given archive path. This surfaces the audit trail for a
-// specific file in the viewer metadata sidebar.
-func GetHistoryForFile(database *sql.DB, archivePath string) ([]HistoryEntry, error) {
+// GetHistoryForFile returns a unified timeline of archive history entries and
+// web-UI file actions for the given file. CLI archive events are matched by
+// archive path; web-UI actions are looked up by file ID.
+func GetHistoryForFile(database *sql.DB, fileID int64, archivePath string) ([]HistoryEntry, error) {
+	// 1. CLI archive history — match by path substring in the message.
 	rows, err := database.Query(`
 		SELECT id, timestamp, job_name, status, message
 		FROM history
@@ -155,7 +159,56 @@ func GetHistoryForFile(database *sql.DB, archivePath string) ([]HistoryEntry, er
 			return nil, err
 		}
 		e.Timestamp = parseTime(tsStr)
+		e.Source = "archive"
 		entries = append(entries, e)
 	}
-	return entries, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 2. Web-UI file actions — exact match on file_id.
+	if fileID > 0 {
+		arows, err := database.Query(`
+			SELECT id, performed_at, action, COALESCE(notes, '')
+			FROM   file_actions
+			WHERE  file_id = ?
+			ORDER  BY performed_at DESC
+			LIMIT  20
+		`, fileID)
+		if err != nil {
+			return nil, fmt.Errorf("file actions query: %w", err)
+		}
+		defer arows.Close()
+
+		for arows.Next() {
+			var a FileAction
+			var tsStr string
+			if err := arows.Scan(&a.ID, &tsStr, &a.Action, &a.Notes); err != nil {
+				return nil, err
+			}
+			a.PerformedAt = parseTime(tsStr)
+			entries = append(entries, HistoryEntry{
+				// Use a negative ID to avoid collisions with history table IDs.
+				ID:        -a.ID,
+				Timestamp: a.PerformedAt,
+				JobName:   "web-ui",
+				Status:    a.Action,
+				Message:   a.Notes,
+				Source:    "web_ui",
+			})
+		}
+		if err := arows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	// Sort merged results newest first.
+	sortHistoryEntries(entries)
+	return entries, nil
+}
+
+func sortHistoryEntries(entries []HistoryEntry) {
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Timestamp.After(entries[j].Timestamp)
+	})
 }

@@ -22,6 +22,7 @@ func GetDuplicateGroups(database *sql.DB) ([]DuplicateGroup, error) {
 	rows, err := database.Query(`
 		SELECT id, original_path, archive_path, file_name, size, checksum, mod_time
 		FROM file_registry
+		WHERE trashed_at IS NULL
 		ORDER BY file_name, archive_path
 	`)
 	if err != nil {

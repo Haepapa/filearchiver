@@ -43,7 +43,7 @@ type NavTag struct {
 
 // GetNavTypes returns all extensions present in the archive, sorted by count desc.
 func GetNavTypes(database *sql.DB) ([]NavTypeEntry, error) {
-	rows, err := database.Query(`SELECT file_name, size FROM file_registry`)
+	rows, err := database.Query(`SELECT file_name, size FROM file_registry WHERE trashed_at IS NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("nav types query: %w", err)
 	}
@@ -86,7 +86,7 @@ func GetNavDates(database *sql.DB) ([]NavYearEntry, error) {
 			SUBSTR(mod_time, 6, 2) AS mo,
 			COUNT(*)               AS cnt
 		FROM file_registry
-		WHERE mod_time IS NOT NULL AND mod_time != ''
+		WHERE mod_time IS NOT NULL AND mod_time != '' AND trashed_at IS NULL
 		GROUP BY yr, mo
 		ORDER BY yr DESC, mo ASC
 	`)

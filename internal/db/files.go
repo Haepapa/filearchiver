@@ -10,15 +10,18 @@ import (
 
 // File is a row from file_registry with derived fields.
 type File struct {
-	ID           int64     `json:"id"`
-	OriginalPath string    `json:"original_path"`
-	ArchivePath  string    `json:"archive_path"`
-	FileName     string    `json:"file_name"`
-	Size         int64     `json:"size"`
-	Checksum     string    `json:"checksum"`
-	ModTime      time.Time `json:"mod_time"`
-	Extension    string    `json:"extension"`
-	IsDuplicate  bool      `json:"is_duplicate"`
+	ID           int64      `json:"id"`
+	OriginalPath string     `json:"original_path"`
+	ArchivePath  string     `json:"archive_path"`
+	FileName     string     `json:"file_name"`
+	Size         int64      `json:"size"`
+	Checksum     string     `json:"checksum"`
+	ModTime      time.Time  `json:"mod_time"`
+	Extension    string     `json:"extension"`
+	IsDuplicate  bool       `json:"is_duplicate"`
+	// Trash fields — only populated for trashed files.
+	TrashedAt   *time.Time `json:"trashed_at,omitempty"`
+	RestorePath string     `json:"restore_path,omitempty"`
 }
 
 // FileListParams holds filter/sort/pagination options for ListFiles.
@@ -189,6 +192,9 @@ func buildWhereClause(p FileListParams) (string, []interface{}) {
 		conditions = append(conditions, `fr.archive_path LIKE '%/_duplicates/%'`)
 	}
 
+	// Always exclude trashed files from the regular file list.
+	conditions = append(conditions, `fr.trashed_at IS NULL`)
+
 	joinClause := ""
 	if p.TagName != "" {
 		joinClause = `JOIN file_tags ft ON ft.file_id = fr.id JOIN tags t ON t.id = ft.tag_id`
@@ -210,6 +216,90 @@ func fileExtension(filename string) string {
 
 func isDuplicate(archivePath string) bool {
 	return strings.Contains(filepath.ToSlash(archivePath), "/_duplicates/")
+}
+
+// TrashFile moves a file's registry record into the "trashed" state.
+// trashPath is the new on-disk location (inside _trash/), and the original
+// archive_path is saved as restore_path so the file can be restored later.
+func TrashFile(database *sql.DB, id int64, trashPath string) error {
+	res, err := database.Exec(`
+		UPDATE file_registry
+		SET    trash_path   = ?,
+		       restore_path = archive_path,
+		       archive_path = ?,
+		       trashed_at   = CURRENT_TIMESTAMP
+		WHERE  id = ? AND trashed_at IS NULL`,
+		trashPath, trashPath, id,
+	)
+	if err != nil {
+		return fmt.Errorf("trash file: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("file id %d not found or already trashed", id)
+	}
+	return nil
+}
+
+// ListTrashedFiles returns all files currently in the trash, newest first.
+func ListTrashedFiles(database *sql.DB) ([]File, error) {
+	rows, err := database.Query(`
+		SELECT id, original_path, archive_path, file_name, size, checksum,
+		       mod_time, trashed_at, restore_path
+		FROM   file_registry
+		WHERE  trashed_at IS NOT NULL
+		ORDER  BY trashed_at DESC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list trashed files: %w", err)
+	}
+	defer rows.Close()
+
+	var files []File
+	for rows.Next() {
+		var f File
+		var modTimeStr, trashedAtStr string
+		var restorePath sql.NullString
+		if err := rows.Scan(
+			&f.ID, &f.OriginalPath, &f.ArchivePath, &f.FileName,
+			&f.Size, &f.Checksum, &modTimeStr, &trashedAtStr, &restorePath,
+		); err != nil {
+			return nil, fmt.Errorf("scan trashed row: %w", err)
+		}
+		f.ModTime = parseTime(modTimeStr)
+		t := parseTime(trashedAtStr)
+		f.TrashedAt = &t
+		f.RestorePath = restorePath.String
+		f.Extension = fileExtension(f.FileName)
+		files = append(files, f)
+	}
+	return files, rows.Err()
+}
+
+// RestoreFileRecord clears the trash fields on a file_registry row and returns
+// the restore_path so the caller can move the file back on disk.
+func RestoreFileRecord(database *sql.DB, id int64) (restorePath string, err error) {
+	if err = database.QueryRow(
+		`SELECT restore_path FROM file_registry WHERE id = ? AND trashed_at IS NOT NULL`, id,
+	).Scan(&restorePath); err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("file id %d not found in trash", id)
+		}
+		return "", fmt.Errorf("restore record lookup: %w", err)
+	}
+
+	_, err = database.Exec(`
+		UPDATE file_registry
+		SET    archive_path = restore_path,
+		       trash_path   = NULL,
+		       restore_path = NULL,
+		       trashed_at   = NULL
+		WHERE  id = ?`, id,
+	)
+	if err != nil {
+		return "", fmt.Errorf("restore file record: %w", err)
+	}
+	return restorePath, nil
 }
 
 // parseTime handles the varying datetime formats SQLite may return.

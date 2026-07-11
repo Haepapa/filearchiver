@@ -109,6 +109,21 @@ document.addEventListener('alpine:init', () => {
     dupConfirmDanger:   true,
     _dupConfirmFn:      null,
 
+    // ── Trash page ────────────────────────────────────────────────────────────
+    trashFiles:   [],
+    trashLoading: false,
+
+    // ── File Actions audit log ────────────────────────────────────────────────
+    fileActions:        [],
+    fileActionsResult:  null,
+    fileActionsLoading: false,
+    fileActionsPage:    1,
+    fileActionsFilter:  '',
+    fileActionsSearch:  '',
+
+    // ── History sub-tab ('archive' | 'actions') ───────────────────────────────
+    historySubTab: 'archive',
+
     // ── Toast notification ────────────────────────────────────────────────────
     toastMsg:     '',
     toastVisible: false,
@@ -154,12 +169,14 @@ document.addEventListener('alpine:init', () => {
 
       this.$watch('page', p => {
         this.updateHash();
-        if (p === 'files')      this.loadFiles();
-        if (p === 'history')    this.loadHistory();
-        if (p === 'tags')       this.loadTagsPage();
-        if (p === 'duplicates') this.loadDuplicates();
-        if (p === 'search')     this.runSearch();
-        if (p === 'settings')   this.loadSettings();
+        if (p === 'files')        this.loadFiles();
+        if (p === 'history')      this.loadHistory();
+        if (p === 'tags')         this.loadTagsPage();
+        if (p === 'duplicates')   this.loadDuplicates();
+        if (p === 'search')       this.runSearch();
+        if (p === 'settings')     this.loadSettings();
+        if (p === 'trash')        this.loadTrash();
+        if (p === 'file-actions') this.loadFileActions();
       });
 
       this.$watch('filesPage',  () => this.loadFiles());
@@ -173,6 +190,10 @@ document.addEventListener('alpine:init', () => {
       this.$watch('historyMessageFilter', () => { this.historyPage = 1; this.loadHistory(); });
       this.$watch('historyFromDate',      () => { this.historyPage = 1; this.loadHistory(); });
       this.$watch('historyToDate',        () => { this.historyPage = 1; this.loadHistory(); });
+
+      this.$watch('fileActionsPage',   () => this.loadFileActions());
+      this.$watch('fileActionsFilter', () => { this.fileActionsPage = 1; this.loadFileActions(); });
+      this.$watch('fileActionsSearch', () => { this.fileActionsPage = 1; this.loadFileActions(); });
 
       this.$watch('searchQuery',        () => { this.searchPage = 1; this.runSearch(); this.updateHash(); });
       this.$watch('searchExt',          () => { this.searchPage = 1; this.runSearch(); });
@@ -593,7 +614,7 @@ document.addEventListener('alpine:init', () => {
 
     // ── URL hash state ────────────────────────────────────────────────────────
     updateHash() {
-      const pages = ['dashboard','files','search','history','tags','duplicates','settings'];
+      const pages = ['dashboard','files','search','history','tags','duplicates','settings','trash'];
       if (!pages.includes(this.page)) return;
       let hash = this.page;
       if (this.page === 'search' && this.searchQuery) {
@@ -611,7 +632,7 @@ document.addEventListener('alpine:init', () => {
       const raw = window.location.hash.slice(1);
       if (!raw) return;
       const [path, qs] = raw.split('?');
-      const valid = ['dashboard','files','search','history','tags','duplicates','settings'];
+      const valid = ['dashboard','files','search','history','tags','duplicates','settings','trash'];
       if (valid.includes(path)) this.page = path;
       if (path === 'search' && qs) {
         const sp = new URLSearchParams(qs);
@@ -781,7 +802,7 @@ document.addEventListener('alpine:init', () => {
         this.showToast('Error: ' + (j.error || res.status));
         return false;
       }
-      this.showToast('Duplicate deleted');
+      this.showToast('Moved to Trash');
       this.loadStats();
       return true;
     },
@@ -808,6 +829,90 @@ document.addEventListener('alpine:init', () => {
       if (group.duplicates.length === 0) {
         const idx = this.dupGroups.indexOf(group);
         if (idx >= 0) this.dupGroups.splice(idx, 1);
+      }
+    },
+
+    // ── Trash page ────────────────────────────────────────────────────────────
+    async loadTrash() {
+      this.trashLoading = true;
+      try {
+        const res = await fetch('/api/trash');
+        this.trashFiles = await res.json() ?? [];
+      } catch(e) {
+        console.error('trash', e);
+        this.trashFiles = [];
+      } finally {
+        this.trashLoading = false;
+      }
+    },
+
+    async trashViewerFile() {
+      if (!this.viewerFile) return;
+      const id = this.viewerFile.id;
+      const res = await fetch(`/api/files/${id}?confirm=true`, { method: 'DELETE' });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        this.showToast('Error: ' + (j.error || res.status));
+        return;
+      }
+      this.showToast('Moved to Trash');
+      this.files = this.files.filter(f => f.id !== id);
+      this.closeViewer();
+      this.loadStats();
+      this.loadNavData();
+    },
+
+    async restoreTrashFile(file) {
+      const res = await fetch(`/api/trash/${file.id}/restore`, { method: 'POST' });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        this.showToast('Error: ' + (j.error || res.status));
+        return;
+      }
+      this.showToast('File restored');
+      await this.loadTrash();
+      this.loadStats();
+      this.loadNavData();
+    },
+
+    async permanentlyDeleteTrashFile(file) {
+      const res = await fetch(`/api/trash/${file.id}?confirm=true`, { method: 'DELETE' });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        this.showToast('Error: ' + (j.error || res.status));
+        return;
+      }
+      this.showToast('Permanently deleted');
+      this.trashFiles = this.trashFiles.filter(f => f.id !== file.id);
+    },
+
+    async emptyTrash() {
+      const res = await fetch('/api/trash?confirm=true', { method: 'DELETE' });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        this.showToast('Error: ' + (j.error || res.status));
+        return;
+      }
+      const j = await res.json();
+      this.showToast(`Permanently deleted ${j.deleted ?? 0} file(s)`);
+      this.trashFiles = [];
+      this.loadStats();
+    },
+
+    // ── File Actions audit log ────────────────────────────────────────────────
+    async loadFileActions() {
+      this.fileActionsLoading = true;
+      try {
+        const p = new URLSearchParams({ page: this.fileActionsPage, per_page: 50 });
+        if (this.fileActionsFilter) p.set('action', this.fileActionsFilter);
+        if (this.fileActionsSearch) p.set('q', this.fileActionsSearch);
+        const res = await fetch('/api/file-actions?' + p);
+        this.fileActionsResult = await res.json();
+        this.fileActions = this.fileActionsResult.actions ?? [];
+      } catch(e) {
+        console.error('file actions', e);
+      } finally {
+        this.fileActionsLoading = false;
       }
     },
 

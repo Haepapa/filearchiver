@@ -2,9 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"filearchiver/internal/db"
 )
@@ -24,8 +26,8 @@ func handleListDuplicates(cfg Config) http.HandlerFunc {
 	}
 }
 
-// handleDeleteFile deletes a file from disk and removes its registry record.
-// A confirm=true query param is required as a double-submit CSRF guard.
+// handleDeleteFile moves a file to the _trash directory and marks it as trashed
+// in the registry. A confirm=true query param is required as a safety guard.
 func handleDeleteFile(cfg Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("confirm") != "true" {
@@ -56,18 +58,33 @@ func handleDeleteFile(cfg Config) http.HandlerFunc {
 			return
 		}
 
-		// Delete from disk — tolerate already-missing files.
-		if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
-			writeError(w, http.StatusInternalServerError, "cannot delete file: "+err.Error())
+		// Resolve a safe destination inside _trash/.
+		trashDir := filepath.Join(absRoot, "_trash")
+		if err := os.MkdirAll(trashDir, 0755); err != nil {
+			writeError(w, http.StatusInternalServerError, "cannot create trash directory: "+err.Error())
 			return
 		}
-
-		if err := db.DeleteFileRecord(cfg.DB, id); err != nil {
+		trashPath, err := resolveTrashPath(trashDir, file.FileName)
+		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{"deleted": id})
+		// Move file into trash (tolerate already-missing files).
+		if err := os.Rename(absPath, trashPath); err != nil && !os.IsNotExist(err) {
+			writeError(w, http.StatusInternalServerError, "cannot move file to trash: "+err.Error())
+			return
+		}
+
+		if err := db.TrashFile(cfg.DB, id, trashPath); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		_ = db.LogFileAction(cfg.DB, &id, file.FileName, file.ArchivePath,
+			"trashed", "moved to _trash/ via web UI")
+
+		writeJSON(w, http.StatusOK, map[string]any{"trashed": id, "trash_path": trashPath})
 	}
 }
 
@@ -236,4 +253,22 @@ func purgeThumbs(thumbDir string) error {
 		_ = os.Remove(m)
 	}
 	return nil
+}
+
+// resolveTrashPath returns a unique destination path inside trashDir for the
+// given filename. If the base name already exists it appends _01.._99.
+func resolveTrashPath(trashDir, fileName string) (string, error) {
+	base := filepath.Join(trashDir, fileName)
+	if _, err := os.Stat(base); os.IsNotExist(err) {
+		return base, nil
+	}
+	ext := filepath.Ext(fileName)
+	stem := strings.TrimSuffix(fileName, ext)
+	for i := 1; i <= 99; i++ {
+		candidate := filepath.Join(trashDir, fmt.Sprintf("%s_%02d%s", stem, i, ext))
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("too many files named %q in trash", fileName)
 }
