@@ -120,6 +120,38 @@ func Migrate(database *sql.DB) error {
 		return fmt.Errorf("migration failed: %w", err)
 	}
 
+	// Proxy generation columns on file_registry.
+	proxyCols := []string{
+		`ALTER TABLE file_registry ADD COLUMN proxy_path         TEXT     DEFAULT NULL`,
+		`ALTER TABLE file_registry ADD COLUMN proxy_status       TEXT     DEFAULT NULL`,
+		`ALTER TABLE file_registry ADD COLUMN proxy_generated_at DATETIME DEFAULT NULL`,
+		`ALTER TABLE file_registry ADD COLUMN proxy_error        TEXT     DEFAULT NULL`,
+	}
+	for _, stmt := range proxyCols {
+		if _, err := database.Exec(stmt); err != nil {
+			if !isDuplicateColumn(err) {
+				return fmt.Errorf("migration failed: %w", err)
+			}
+		}
+	}
+
+	if _, err := database.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_registry_proxy_status ON file_registry(proxy_status)`,
+	); err != nil {
+		return fmt.Errorf("migration failed: %w", err)
+	}
+
+	// Proxy settings key-value table.
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS proxy_settings (
+			key        TEXT PRIMARY KEY,
+			value      TEXT NOT NULL,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+	); err != nil {
+		return fmt.Errorf("migration failed: %w", err)
+	}
+
 	return nil
 }
 

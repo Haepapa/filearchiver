@@ -48,9 +48,12 @@ services:
       - /path/to/archive:/data/archive
       # Optional: persistent thumbnail cache (saves re-generation on restart)
       - filearchiver-thumbs:/data/thumbs
+      # Optional: persistent proxy/preview cache
+      - filearchiver-proxies:/data/proxies
     # Add -readonly flag to disable all write/delete operations in the UI
+    # Add -no-proxy flag to disable background proxy generation
     command: ["-db", "/data/db/filearchiver.db", "-archive", "/data/archive",
-              "-thumbdir", "/data/thumbs", "-port", "8080"]
+              "-thumbdir", "/data/thumbs", "-proxydir", "/data/proxies", "-port", "8080"]
     restart: unless-stopped
     depends_on:
       filearchiver-setup:
@@ -60,6 +63,8 @@ volumes:
   filearchiver-config:
     driver: local
   filearchiver-thumbs:
+    driver: local
+  filearchiver-proxies:
     driver: local
 
 # Alternative example for multiple jobs using config file:

@@ -22,6 +22,9 @@ type File struct {
 	// Trash fields — only populated for trashed files.
 	TrashedAt   *time.Time `json:"trashed_at,omitempty"`
 	RestorePath string     `json:"restore_path,omitempty"`
+	// Proxy fields.
+	ProxyPath   string     `json:"proxy_path,omitempty"`
+	ProxyStatus string     `json:"proxy_status,omitempty"`
 }
 
 // FileListParams holds filter/sort/pagination options for ListFiles.
@@ -86,7 +89,8 @@ func ListFiles(database *sql.DB, p FileListParams) (*FileListResult, error) {
 	offset := (p.Page - 1) * p.PerPage
 	//nolint:gosec // sort and order are validated above
 	querySQL := fmt.Sprintf(
-		`SELECT fr.id, fr.original_path, fr.archive_path, fr.file_name, fr.size, fr.checksum, fr.mod_time
+		`SELECT fr.id, fr.original_path, fr.archive_path, fr.file_name, fr.size, fr.checksum, fr.mod_time,
+		        COALESCE(fr.proxy_path, ''), COALESCE(fr.proxy_status, '')
 		 FROM file_registry fr %s
 		 ORDER BY fr.%s %s
 		 LIMIT ? OFFSET ?`,
@@ -104,7 +108,8 @@ func ListFiles(database *sql.DB, p FileListParams) (*FileListResult, error) {
 	for rows.Next() {
 		var f File
 		var modTimeStr string
-		if err := rows.Scan(&f.ID, &f.OriginalPath, &f.ArchivePath, &f.FileName, &f.Size, &f.Checksum, &modTimeStr); err != nil {
+		if err := rows.Scan(&f.ID, &f.OriginalPath, &f.ArchivePath, &f.FileName, &f.Size, &f.Checksum, &modTimeStr,
+			&f.ProxyPath, &f.ProxyStatus); err != nil {
 			return nil, fmt.Errorf("scan row: %w", err)
 		}
 		f.ModTime = parseTime(modTimeStr)
@@ -135,9 +140,11 @@ func GetFile(database *sql.DB, id int64) (*File, error) {
 	var f File
 	var modTimeStr string
 	err := database.QueryRow(
-		`SELECT id, original_path, archive_path, file_name, size, checksum, mod_time
+		`SELECT id, original_path, archive_path, file_name, size, checksum, mod_time,
+		        COALESCE(proxy_path, ''), COALESCE(proxy_status, '')
 		 FROM file_registry WHERE id = ?`, id,
-	).Scan(&f.ID, &f.OriginalPath, &f.ArchivePath, &f.FileName, &f.Size, &f.Checksum, &modTimeStr)
+	).Scan(&f.ID, &f.OriginalPath, &f.ArchivePath, &f.FileName, &f.Size, &f.Checksum, &modTimeStr,
+		&f.ProxyPath, &f.ProxyStatus)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

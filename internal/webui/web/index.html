@@ -1222,6 +1222,204 @@
           </div>
         </section>
 
+        <!-- Proxy / Preview Generation -->
+        <section class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6">
+          <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <h2 class="font-medium text-gray-800">Proxy Generation</h2>
+              <p class="text-xs text-gray-500 mt-0.5">Background conversion of large originals to streamable proxies</p>
+            </div>
+          </div>
+
+          <!-- Status bar -->
+          <div class="px-5 py-4 border-b border-gray-100">
+            <template x-if="proxyStatus">
+              <div class="space-y-3">
+                <!-- State pill + current file -->
+                <div class="flex items-center gap-3 flex-wrap">
+                  <!-- State pill -->
+                  <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
+                    :class="{
+                      'bg-green-100 text-green-700':  proxyStatus.running && !proxyStatus.paused,
+                      'bg-yellow-100 text-yellow-700': proxyStatus.paused,
+                      'bg-gray-100 text-gray-500':    !proxyStatus.running && !proxyStatus.paused
+                    }">
+                    <span class="w-1.5 h-1.5 rounded-full inline-block"
+                      :class="{
+                        'bg-green-500 animate-pulse': proxyStatus.running && !proxyStatus.paused,
+                        'bg-yellow-400': proxyStatus.paused,
+                        'bg-gray-400':   !proxyStatus.running && !proxyStatus.paused
+                      }"></span>
+                    <span x-text="proxyStatus.running && !proxyStatus.paused ? 'Converting' : proxyStatus.paused ? 'Paused' : 'Stopped'"></span>
+                  </span>
+                  <!-- Current file -->
+                  <span x-show="proxyStatus.current_file" class="text-sm text-gray-700 font-mono truncate max-w-sm"
+                    x-text="proxyStatus.current_file ? proxyStatus.current_file.split('/').pop() : ''"></span>
+                  <span x-show="proxyStatus.current_file" class="text-xs text-gray-400">converting…</span>
+                  <!-- Idle message -->
+                  <span x-show="proxyStatus.running && !proxyStatus.paused && !proxyStatus.current_file"
+                    class="text-xs text-gray-400">Waiting for next file…</span>
+                </div>
+
+                <!-- Stats row -->
+                <div class="flex items-center gap-4 flex-wrap text-sm">
+                  <span class="flex items-center gap-1.5 text-green-700 font-medium">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    <span x-text="(proxyStatus.stats?.done ?? 0).toLocaleString()"></span>
+                    <span class="text-gray-500 font-normal">converted</span>
+                  </span>
+                  <span class="text-gray-300">·</span>
+                  <span class="flex items-center gap-1.5 text-blue-600 font-medium">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <span x-text="((proxyStatus.stats?.pending ?? 0) + (proxyStatus.stats?.processing ?? 0)).toLocaleString()"></span>
+                    <span class="text-gray-500 font-normal">to convert</span>
+                  </span>
+                  <span class="text-gray-300">·</span>
+                  <span class="flex items-center gap-1.5 text-red-600 font-medium">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                    <span x-text="(proxyStatus.stats?.failed ?? 0).toLocaleString()"></span>
+                    <span class="text-gray-500 font-normal">failed</span>
+                  </span>
+                  <span class="text-gray-300">·</span>
+                  <span class="flex items-center gap-1.5 text-gray-500">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
+                    </svg>
+                    <span x-text="(proxyStatus.stats?.skipped ?? 0).toLocaleString()"></span>
+                    <span class="font-normal">skipped</span>
+                  </span>
+                </div>
+
+                <!-- Tool availability badges -->
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-xs text-gray-400">Tools:</span>
+                  <span class="px-2 py-0.5 rounded text-xs font-mono"
+                    :class="proxyStatus.tools?.ffmpeg ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-600 border border-red-200'">
+                    ffmpeg <span x-text="proxyStatus.tools?.ffmpeg ? '✓' : '✗'"></span>
+                  </span>
+                  <span class="px-2 py-0.5 rounded text-xs font-mono"
+                    :class="proxyStatus.tools?.imagemagick ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-600 border border-red-200'">
+                    imagemagick <span x-text="proxyStatus.tools?.imagemagick ? '✓' : '✗'"></span>
+                  </span>
+                  <span class="px-2 py-0.5 rounded text-xs font-mono"
+                    :class="proxyStatus.tools?.dcraw ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'">
+                    dcraw <span x-text="proxyStatus.tools?.dcraw ? '✓' : '✗'"></span>
+                    <span x-show="!proxyStatus.tools?.dcraw" class="text-amber-500">(RAW disabled)</span>
+                  </span>
+                  <span class="px-2 py-0.5 rounded text-xs font-mono"
+                    :class="proxyStatus.tools?.gpu ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-gray-50 text-gray-500 border border-gray-200'">
+                    GPU <span x-text="proxyStatus.tools?.gpu ? '✓' : '✗'"></span>
+                  </span>
+                </div>
+
+                <!-- Pause / Resume / Restart actions -->
+                <div class="flex items-center gap-2 pt-1" x-show="!(serverSettings && serverSettings.readonly)">
+                  <button x-show="proxyStatus.running && !proxyStatus.paused"
+                    @click="proxyPause()"
+                    class="px-3 py-1 text-xs rounded-lg bg-yellow-100 text-yellow-800 hover:bg-yellow-200 border border-yellow-200 font-medium">
+                    ⏸ Pause
+                  </button>
+                  <button x-show="proxyStatus.paused || !proxyStatus.running"
+                    @click="proxyResume()"
+                    class="px-3 py-1 text-xs rounded-lg bg-green-100 text-green-800 hover:bg-green-200 border border-green-200 font-medium">
+                    ▶ Resume
+                  </button>
+                  <button x-show="(proxyStatus.stats?.failed ?? 0) > 0"
+                    @click="proxyRestart()"
+                    class="px-3 py-1 text-xs rounded-lg bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 font-medium">
+                    ↺ Retry failed (<span x-text="proxyStatus.stats?.failed ?? 0"></span>)
+                  </button>
+                </div>
+              </div>
+            </template>
+            <template x-if="!proxyStatus">
+              <div class="text-sm text-gray-400">Loading status…</div>
+            </template>
+          </div>
+
+          <!-- Settings controls -->
+          <div class="px-5 py-4 space-y-4" x-show="!(serverSettings && serverSettings.readonly)">
+            <!-- Row 1: Enable + Min file size -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div class="flex items-center justify-between">
+                <label class="text-sm text-gray-700">Enable proxy generation</label>
+                <button @click="proxySettings.enabled = proxySettings.enabled === 'true' ? 'false' : 'true'"
+                  class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                  :class="proxySettings.enabled === 'true' ? 'bg-blue-600' : 'bg-gray-300'">
+                  <span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform"
+                    :class="proxySettings.enabled === 'true' ? 'translate-x-[18px]' : 'translate-x-1'"></span>
+                </button>
+              </div>
+              <div>
+                <label class="block text-sm text-gray-700 mb-1">Min file size (MB)</label>
+                <input type="number" min="1" x-model="proxySettings.min_file_size_mb"
+                  class="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+              </div>
+            </div>
+            <!-- Row 2: Workers + GPU -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm text-gray-700 mb-1">Max workers (threads)</label>
+                <input type="number" min="1" max="8" x-model="proxySettings.max_workers"
+                  class="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+              </div>
+              <div class="flex items-center justify-between">
+                <label class="text-sm text-gray-700">Use NVIDIA GPU (NVENC)</label>
+                <button @click="proxySettings.use_gpu = proxySettings.use_gpu === 'true' ? 'false' : 'true'"
+                  :disabled="!proxyStatus?.tools?.gpu"
+                  class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-40"
+                  :class="proxySettings.use_gpu === 'true' ? 'bg-purple-600' : 'bg-gray-300'">
+                  <span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform"
+                    :class="proxySettings.use_gpu === 'true' ? 'translate-x-[18px]' : 'translate-x-1'"></span>
+                </button>
+              </div>
+            </div>
+            <!-- Row 3: Image settings -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm text-gray-700 mb-1">Image max width (px)</label>
+                <input type="number" min="256" max="8192" x-model="proxySettings.image_max_width"
+                  class="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+              </div>
+              <div>
+                <label class="block text-sm text-gray-700 mb-1">Image JPEG quality (1–100)</label>
+                <input type="number" min="1" max="100" x-model="proxySettings.image_quality"
+                  class="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+              </div>
+            </div>
+            <!-- Row 4: Video settings -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm text-gray-700 mb-1">Video max width (px)</label>
+                <input type="number" min="240" max="3840" x-model="proxySettings.video_max_width"
+                  class="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+              </div>
+              <div>
+                <label class="block text-sm text-gray-700 mb-1">Video CRF quality (1–51, lower = better)</label>
+                <input type="number" min="1" max="51" x-model="proxySettings.video_crf"
+                  class="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+              </div>
+            </div>
+            <!-- Save button -->
+            <div class="pt-1">
+              <button @click="saveProxySettings()"
+                class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500">
+                Save settings
+              </button>
+            </div>
+          </div>
+          <!-- Read-only notice -->
+          <div x-show="serverSettings && serverSettings.readonly" class="px-5 py-3 text-sm text-gray-400">
+            Settings cannot be changed in read-only mode.
+          </div>
+        </section>
+
         <!-- About -->
         <section class="bg-white rounded-xl border border-gray-200 shadow-sm">
           <div class="px-5 py-4 border-b border-gray-100">
@@ -1545,19 +1743,31 @@
 
         <!-- IMAGE -->
         <template x-if="viewerType === 'image'">
-          <img :src="viewerFile ? contentURL(viewerFile.id) : ''"
-               :alt="viewerFile?.file_name"
-               class="max-w-full max-h-full object-contain rounded shadow-2xl select-none"
-               style="max-height: calc(100vh - 120px)" />
+          <div class="relative flex items-center justify-center">
+            <img :src="viewerFile ? bestMediaURL(viewerFile) : ''"
+                 :alt="viewerFile?.file_name"
+                 class="max-w-full max-h-full object-contain rounded shadow-2xl select-none"
+                 style="max-height: calc(100vh - 120px)" />
+            <span x-show="viewerFile?.proxy_status === 'done'"
+                  class="absolute top-2 right-2 px-1.5 py-0.5 bg-black/60 text-white/70 text-xs rounded font-mono">
+              proxy
+            </span>
+          </div>
         </template>
 
         <!-- VIDEO -->
         <template x-if="viewerType === 'video'">
-          <video :src="viewerFile ? contentURL(viewerFile.id) : ''"
-                 controls autoplay
-                 class="max-w-full max-h-full rounded shadow-2xl"
-                 style="max-height: calc(100vh - 120px)">
-          </video>
+          <div class="relative w-full flex items-center justify-center">
+            <video :src="viewerFile ? bestMediaURL(viewerFile) : ''"
+                   controls autoplay
+                   class="max-w-full max-h-full rounded shadow-2xl"
+                   style="max-height: calc(100vh - 120px)">
+            </video>
+            <span x-show="viewerFile?.proxy_status === 'done'"
+                  class="absolute top-2 right-2 px-1.5 py-0.5 bg-black/60 text-white/70 text-xs rounded font-mono">
+              proxy
+            </span>
+          </div>
         </template>
 
         <!-- AUDIO -->
@@ -1674,6 +1884,23 @@
                   <p class="break-all font-mono text-xs text-white/40" x-text="viewerFile.checksum"></p>
                 </div>
               </template>
+
+              <!-- Proxy status -->
+              <div>
+                <p class="text-white/40 text-xs uppercase tracking-wide mb-1">Proxy</p>
+                <span class="px-2 py-0.5 rounded text-xs font-medium"
+                  :class="{
+                    'bg-green-900/50 text-green-300':  viewerFile.proxy_status === 'done',
+                    'bg-blue-900/50 text-blue-300':    viewerFile.proxy_status === 'pending' || viewerFile.proxy_status === 'processing',
+                    'bg-red-900/50 text-red-400':      viewerFile.proxy_status === 'failed',
+                    'bg-gray-700 text-gray-400':       viewerFile.proxy_status === 'skipped' || !viewerFile.proxy_status
+                  }"
+                  x-text="viewerFile.proxy_status || 'N/A'">
+                </span>
+                <span x-show="viewerFile.proxy_status === 'failed'" class="ml-1 text-xs text-red-400">
+                  (check Settings → Proxy Generation)
+                </span>
+              </div>
 
               <!-- ── Tags editor ── -->
               <div>
