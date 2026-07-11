@@ -34,6 +34,9 @@ document.addEventListener('alpine:init', () => {
     filesSort:    'mod_time',
     filesOrder:   'desc',
     viewMode:     'list',
+    // Selection mode
+    filesSelecting:  false,
+    selectedFileIds: new Set(),
 
     // ── History log ──────────────────────────────────────────────────────────
     history:             [],
@@ -237,6 +240,7 @@ document.addEventListener('alpine:init', () => {
 
     async loadFiles() {
       this.filesLoading = true;
+      this.selectedFileIds = new Set();
       try {
         const p = new URLSearchParams({
           page:     this.filesPage,
@@ -833,6 +837,56 @@ document.addEventListener('alpine:init', () => {
     },
 
     // ── Trash page ────────────────────────────────────────────────────────────
+    // ── File selection & bulk trash ───────────────────────────────────────────
+    toggleSelectMode() {
+      this.filesSelecting = !this.filesSelecting;
+      if (!this.filesSelecting) this.selectedFileIds = new Set();
+    },
+
+    toggleFileSelect(id) {
+      const s = new Set(this.selectedFileIds);
+      if (s.has(id)) { s.delete(id); } else { s.add(id); }
+      this.selectedFileIds = s;
+    },
+
+    isFileSelected(id) {
+      return this.selectedFileIds.has(id);
+    },
+
+    get allPageSelected() {
+      return this.files.length > 0 && this.files.every(f => this.selectedFileIds.has(f.id));
+    },
+
+    toggleSelectAll() {
+      if (this.allPageSelected) {
+        this.selectedFileIds = new Set();
+      } else {
+        this.selectedFileIds = new Set(this.files.map(f => f.id));
+      }
+    },
+
+    async bulkTrashSelected() {
+      if (this.selectedFileIds.size === 0) return;
+      const ids = [...this.selectedFileIds];
+      const res = await fetch('/api/files/bulk-trash', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, confirm: true }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        this.showToast('Error: ' + (j.error || res.status));
+        return;
+      }
+      const count = j.trashed ?? 0;
+      this.showToast(`Moved ${count} file${count === 1 ? '' : 's'} to Trash`);
+      this.selectedFileIds = new Set();
+      this.filesSelecting = false;
+      await this.loadFiles();
+      this.loadStats();
+      this.loadNavData();
+    },
+
     async loadTrash() {
       this.trashLoading = true;
       try {

@@ -2,7 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 
 	"filearchiver/internal/db"
@@ -59,6 +62,85 @@ func handleGetFile(cfg Config) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusOK, file)
+	}
+}
+
+// handleBulkTrashFiles moves multiple files to trash in one request.
+// Body: {"ids": [1, 2, 3], "confirm": true}
+func handleBulkTrashFiles(cfg Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			IDs     []int64 `json:"ids"`
+			Confirm bool    `json:"confirm"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if !body.Confirm {
+			writeError(w, http.StatusBadRequest, "confirm must be true")
+			return
+		}
+		if len(body.IDs) == 0 {
+			writeError(w, http.StatusBadRequest, "no file ids provided")
+			return
+		}
+		if len(body.IDs) > 500 {
+			writeError(w, http.StatusBadRequest, "too many ids (max 500)")
+			return
+		}
+
+		absRoot, _ := filepath.Abs(cfg.ArchiveRoot)
+		trashDir := filepath.Join(absRoot, "_trash")
+		if err := os.MkdirAll(trashDir, 0755); err != nil {
+			writeError(w, http.StatusInternalServerError, "cannot create trash directory: "+err.Error())
+			return
+		}
+
+		trashed := 0
+		var errs []string
+
+		for _, id := range body.IDs {
+			file, err := db.GetFile(cfg.DB, id)
+			if err != nil || file == nil {
+				errs = append(errs, fmt.Sprintf("id %d: not found", id))
+				continue
+			}
+
+			absPath, _ := filepath.Abs(file.ArchivePath)
+			if !isUnderRoot(absPath, absRoot) {
+				errs = append(errs, fmt.Sprintf("%s: path outside archive root", file.FileName))
+				continue
+			}
+
+			trashPath, err := resolveTrashPath(trashDir, file.FileName)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %s", file.FileName, err.Error()))
+				continue
+			}
+
+			if err := os.Rename(absPath, trashPath); err != nil && !os.IsNotExist(err) {
+				errs = append(errs, fmt.Sprintf("%s: %s", file.FileName, err.Error()))
+				continue
+			}
+
+			if err := db.TrashFile(cfg.DB, id, trashPath); err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %s", file.FileName, err.Error()))
+				continue
+			}
+
+			fID := id
+			_ = db.LogFileAction(cfg.DB, &fID, file.FileName, file.ArchivePath,
+				"trashed", "bulk move to trash via web UI")
+
+			trashed++
+		}
+
+		resp := map[string]any{"trashed": trashed}
+		if len(errs) > 0 {
+			resp["errors"] = errs
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
 }
 

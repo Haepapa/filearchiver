@@ -41,6 +41,7 @@ func NewRouter(cfg Config) http.Handler {
 
 		r.Route("/files", func(r chi.Router) {
 			r.Get("/", handleListFiles(cfg))
+			r.Post("/bulk-trash", readonlyGuard(cfg, handleBulkTrashFiles(cfg)))
 			r.Get("/{id}", handleGetFile(cfg))
 			r.Delete("/{id}", readonlyGuard(cfg, handleDeleteFile(cfg)))
 			r.Get("/{id}/history", handleGetFileHistory(cfg))
