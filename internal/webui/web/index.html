@@ -1998,6 +1998,38 @@
                 </svg>
                 Move to Trash
               </button>
+
+              <!-- Regenerate proxy — only shown when a proxy is applicable -->
+              <template x-if="viewerFile && viewerFile.proxy_status">
+                <div class="border-t border-white/10 pt-4">
+                  <div class="bg-white/5 border border-white/10 rounded-lg p-3 mb-3">
+                    <p class="text-white/70 text-xs leading-relaxed">
+                      Regenerate proxy deletes the existing proxy file (if any) and
+                      re-queues this file for conversion with the current settings.
+                      Current status:
+                      <span class="font-medium"
+                        :class="{
+                          'text-green-400':  viewerFile.proxy_status === 'done',
+                          'text-blue-400':   viewerFile.proxy_status === 'pending' || viewerFile.proxy_status === 'processing',
+                          'text-red-400':    viewerFile.proxy_status === 'failed',
+                          'text-gray-400':   viewerFile.proxy_status === 'skipped'
+                        }"
+                        x-text="viewerFile.proxy_status">
+                      </span>
+                    </p>
+                  </div>
+                  <button @click="regenViewerProxy()"
+                          :disabled="(serverSettings && serverSettings.readonly) || viewerFile.proxy_status === 'processing'"
+                          class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    <span x-text="viewerFile.proxy_status === 'processing' ? 'Converting…' : 'Regenerate Proxy'"></span>
+                  </button>
+                </div>
+              </template>
+
               <template x-if="serverSettings && serverSettings.readonly">
                 <p class="text-white/30 text-xs text-center">Server is in read-only mode</p>
               </template>

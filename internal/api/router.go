@@ -51,6 +51,7 @@ func NewRouter(cfg Config) http.Handler {
 			r.Get("/{id}/history", handleGetFileHistory(cfg))
 			r.Get("/{id}/tags", handleGetFileTags(cfg))
 			r.Put("/{id}/tags", readonlyGuard(cfg, handleSetFileTags(cfg)))
+			r.Post("/{id}/regenerate-proxy", readonlyGuard(cfg, handleRegenerateProxy(cfg)))
 		})
 
 		r.Route("/duplicates", func(r chi.Router) {

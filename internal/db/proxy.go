@@ -259,6 +259,19 @@ func ResetSkippedProxies(db *sql.DB) error {
 	return err
 }
 
+// ResetFileProxy resets a single file's proxy columns back to pending so the
+// worker will regenerate it. The caller is responsible for deleting the old
+// proxy file on disk before calling this.
+func ResetFileProxy(db *sql.DB, fileID int64) error {
+	_, err := db.Exec(
+		`UPDATE file_registry
+		 SET proxy_status = ?, proxy_path = NULL, proxy_error = NULL, proxy_generated_at = NULL
+		 WHERE id = ?`,
+		ProxyStatusPending, fileID,
+	)
+	return err
+}
+
 // ResetProcessingProxies resets any stale 'processing' rows (left over from
 // an unclean shutdown) back to 'pending'.
 func ResetProcessingProxies(db *sql.DB) error {
