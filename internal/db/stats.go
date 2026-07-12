@@ -17,6 +17,10 @@ type Stats struct {
 	TotalSizeHuman  string     `json:"total_size_human"`
 	TaggedFiles     int64      `json:"tagged_files"`
 	Extensions      []ExtStat  `json:"extensions"`
+	ProxyDone       int64      `json:"proxy_done"`
+	ProxyPending    int64      `json:"proxy_pending"`    // pending + processing
+	ProxyFailed     int64      `json:"proxy_failed"`
+	ProxyConverting bool       `json:"proxy_converting"` // true if any row is 'processing'
 }
 
 // ExtStat is per-extension aggregate data.
@@ -77,6 +81,34 @@ func GetStats(database *sql.DB) (*Stats, error) {
 	})
 	if len(stats.Extensions) > 20 {
 		stats.Extensions = stats.Extensions[:20]
+	}
+
+	// Proxy summary counts for the dashboard.
+	proxyRows, err := database.Query(`
+		SELECT proxy_status, COUNT(*)
+		FROM   file_registry
+		WHERE  trashed_at IS NULL AND proxy_status IS NOT NULL
+		GROUP  BY proxy_status
+	`)
+	if err == nil {
+		defer proxyRows.Close()
+		for proxyRows.Next() {
+			var status string
+			var count int64
+			if err := proxyRows.Scan(&status, &count); err == nil {
+				switch status {
+				case "done":
+					stats.ProxyDone = count
+				case "pending":
+					stats.ProxyPending += count
+				case "processing":
+					stats.ProxyPending += count
+					stats.ProxyConverting = true
+				case "failed":
+					stats.ProxyFailed = count
+				}
+			}
+		}
 	}
 
 	return stats, nil

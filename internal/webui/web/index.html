@@ -51,7 +51,7 @@
 
       <!-- All Files -->
       <button class="sidebar-link w-full text-left"
-        :class="!filterExt && !filterYear && !filterTag && !filterDuplicates && !filesQuery ? 'active' : ''"
+        :class="!filterExt && !filterYear && !filterTag && !filterDuplicates && !filterProxy && !filesQuery ? 'active' : ''"
         @click="clearAllFilters(); page='files'">
         <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18M3 12h18M3 17h18"/>
@@ -201,6 +201,53 @@
           </div>
         </div>
 
+        <!-- Proxy summary card -->
+        <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm mb-8" x-show="stats && (stats.proxy_done > 0 || stats.proxy_pending > 0 || stats.proxy_failed > 0)">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-semibold text-gray-800">Proxy Generation</h2>
+            <!-- Live converting indicator -->
+            <template x-if="stats?.proxy_converting">
+              <span class="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded-full">
+                <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block"></span>
+                Converting now
+              </span>
+            </template>
+            <template x-if="!stats?.proxy_converting && stats?.proxy_pending > 0">
+              <span class="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full">
+                <span class="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block"></span>
+                Queued
+              </span>
+            </template>
+            <template x-if="!stats?.proxy_converting && stats?.proxy_pending === 0 && stats?.proxy_done > 0">
+              <span class="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-full">
+                <span class="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block"></span>
+                Idle
+              </span>
+            </template>
+          </div>
+          <div class="grid grid-cols-3 gap-3">
+            <button @click="setFilter('proxy-done'); page='files'"
+              class="text-center p-3 rounded-lg bg-green-50 hover:bg-green-100 border border-green-100 transition-colors cursor-pointer group">
+              <p class="text-2xl font-bold text-green-700 group-hover:text-green-800"
+                 x-text="stats?.proxy_done?.toLocaleString() ?? '—'"></p>
+              <p class="text-xs text-green-600 mt-0.5">Proxies ready</p>
+            </button>
+            <button @click="setFilter('proxy-none'); page='files'"
+              class="text-center p-3 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-100 transition-colors cursor-pointer group">
+              <p class="text-2xl font-bold text-blue-700 group-hover:text-blue-800"
+                 x-text="stats?.proxy_pending?.toLocaleString() ?? '—'"></p>
+              <p class="text-xs text-blue-600 mt-0.5">Pending / converting</p>
+            </button>
+            <div class="text-center p-3 rounded-lg bg-red-50 border border-red-100"
+                 :class="(stats?.proxy_failed ?? 0) > 0 ? 'cursor-pointer hover:bg-red-100' : ''"
+                 @click="(stats?.proxy_failed ?? 0) > 0 && (page='settings')">
+              <p class="text-2xl font-bold text-red-600"
+                 x-text="stats?.proxy_failed?.toLocaleString() ?? '—'"></p>
+              <p class="text-xs text-red-500 mt-0.5">Failed</p>
+            </div>
+          </div>
+        </div>
+
         <!-- File-type breakdown -->
         <div class="bg-white rounded-xl border border-gray-200 p-6 mb-8 shadow-sm" x-show="stats?.extensions?.length">
           <h2 class="text-base font-semibold mb-4">File Types</h2>
@@ -279,6 +326,14 @@
             class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="desc">Newest first</option>
             <option value="asc">Oldest first</option>
+          </select>
+
+          <!-- Proxy filter -->
+          <select x-model="filterProxy"
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">All files</option>
+            <option value="done">✓ Proxy ready</option>
+            <option value="none">⏳ No proxy yet</option>
           </select>
 
           <!-- View mode toggle -->

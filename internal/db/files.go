@@ -37,6 +37,7 @@ type FileListParams struct {
 	Year           string // 4-digit year, e.g. "2024"
 	Month          string // 2-digit month, e.g. "01" (requires Year to be set)
 	DuplicatesOnly bool
+	ProxyFilter    string // "done" = has proxy | "none" = no proxy yet
 	Page           int
 	PerPage        int
 	Sort           string
@@ -197,6 +198,13 @@ func buildWhereClause(p FileListParams) (string, []interface{}) {
 
 	if p.DuplicatesOnly {
 		conditions = append(conditions, `fr.archive_path LIKE '%/_duplicates/%'`)
+	}
+
+	switch p.ProxyFilter {
+	case "done":
+		conditions = append(conditions, `fr.proxy_status = 'done'`)
+	case "none":
+		conditions = append(conditions, `(fr.proxy_status IS NULL OR fr.proxy_status IN ('pending','processing','failed','skipped'))`)
 	}
 
 	// Always exclude trashed files from the regular file list.
