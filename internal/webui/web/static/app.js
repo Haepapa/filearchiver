@@ -112,6 +112,8 @@ document.addEventListener('alpine:init', () => {
     dupGroups:          [],
     dupLoading:         false,
     dupDismissed:       {},   // { groupIndex: true }
+    dupRescanLoading:   false,
+    dupRescanResult:    null,  // { promoted, new_dups, errors }
     dupConfirmOpen:     false,
     dupConfirmTitle:    '',
     dupConfirmMessage:  '',
@@ -727,6 +729,13 @@ document.addEventListener('alpine:init', () => {
       this.openViewer(file);
     },
 
+    // Opens the viewer for a file in the Duplicates tab.
+    // viewerIndex = -1 disables prev/next navigation (no surrounding list).
+    openViewerFromDup(file) {
+      this.viewerIndex = -1;
+      this.openViewer(file);
+    },
+
     highlight(text, query) {
       if (!query || !text) return this._escapeHTML(text || '');
       const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -848,16 +857,44 @@ document.addEventListener('alpine:init', () => {
     },
 
     confirmPromote(dup, group) {
-      this.dupConfirmTitle   = 'Promote duplicate to primary?';
-      this.dupConfirmMessage = `The duplicate will be moved to the primary location. The existing primary will be removed.`;
+      const hasPrimary = !!group.primary;
+      this.dupConfirmTitle   = hasPrimary ? 'Promote duplicate to primary?' : 'Promote orphaned duplicate?';
+      this.dupConfirmMessage = hasPrimary
+        ? `The duplicate will be moved to the primary location. The existing primary will be removed.`
+        : `No primary file was found. The duplicate will be moved to its derived primary path (the _duplicates/ segment will be removed from its path).`;
       this.dupConfirmPath    = dup.archive_path;
       this.dupConfirmAction  = 'Promote';
       this.dupConfirmDanger  = false;
       this._dupConfirmFn     = async () => {
-        await this._doPromote(dup.id, group.primary ? group.primary.id : null);
+        await this._doPromote(dup.id, hasPrimary ? group.primary.id : null);
         await this.loadDuplicates();
       };
       this.dupConfirmOpen    = true;
+    },
+
+    confirmRescan() {
+      this.dupConfirmTitle   = 'Re-scan for duplicates?';
+      this.dupConfirmMessage = `This performs a full checksum-based re-scan:\n• Orphaned duplicates (only copy, in _duplicates/) are promoted to their primary path.\n• Files sharing a checksum that are not yet in _duplicates/ will be moved there.\n\nFiles are moved on disk. This cannot be undone.`;
+      this.dupConfirmPath    = '';
+      this.dupConfirmAction  = 'Re-scan';
+      this.dupConfirmDanger  = false;
+      this._dupConfirmFn     = async () => {
+        this.dupRescanLoading = true;
+        this.dupRescanResult  = null;
+        try {
+          const res = await fetch('/api/duplicates/rescan?confirm=true', { method: 'POST' });
+          const j   = await res.json();
+          if (!res.ok) { this.showToast('Re-scan error: ' + (j.error || res.status)); return; }
+          this.dupRescanResult = j;
+          await this.loadDuplicates();
+          this.loadStats();
+        } catch(e) {
+          this.showToast('Re-scan failed: ' + e.message);
+        } finally {
+          this.dupRescanLoading = false;
+        }
+      };
+      this.dupConfirmOpen = true;
     },
 
     confirmBulkDelete() {

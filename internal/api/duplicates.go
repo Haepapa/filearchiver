@@ -237,6 +237,80 @@ func handleBulkDeleteIdentical(cfg Config) http.HandlerFunc {
 // helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
+// handleRescanDuplicates performs a full fingerprint-based re-scan of the archive:
+//   - Orphaned _duplicates/ entries (unique content, no primary) → promoted to
+//     their derived primary path.
+//   - Multiple primary-path files sharing the same fingerprint → extras are moved
+//     into a _duplicates/ subdirectory alongside the canonical primary.
+//
+// The proxy worker is paused for the duration of the rescan to reduce system load.
+// Requires confirm=true query param as a safety guard.
+func handleRescanDuplicates(cfg Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("confirm") != "true" {
+			writeError(w, http.StatusBadRequest, "confirm=true is required")
+			return
+		}
+
+		// Pause proxy generation while files are being reorganised.
+		if cfg.ProxyWorker != nil {
+			cfg.ProxyWorker.Pause()
+			defer cfg.ProxyWorker.Resume()
+		}
+
+		changes, err := db.PlanRescan(cfg.DB)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "plan rescan: "+err.Error())
+			return
+		}
+
+		absRoot, _ := filepath.Abs(cfg.ArchiveRoot)
+		result := db.RescanResult{}
+
+		for _, c := range changes {
+			absOld, _ := filepath.Abs(c.OldPath)
+			absNew, _ := filepath.Abs(c.NewPath)
+
+			if !isUnderRoot(absOld, absRoot) || !isUnderRoot(absNew, absRoot) {
+				result.Errors = append(result.Errors, c.FileName+": path outside archive root")
+				continue
+			}
+
+			// Ensure destination directory exists.
+			if err := os.MkdirAll(filepath.Dir(absNew), 0755); err != nil {
+				result.Errors = append(result.Errors, c.FileName+": mkdir: "+err.Error())
+				continue
+			}
+
+			// Avoid overwriting an existing file at the destination.
+			if _, statErr := os.Stat(absNew); statErr == nil {
+				result.Errors = append(result.Errors,
+					c.FileName+": destination already exists, skipping")
+				continue
+			}
+
+			if err := os.Rename(absOld, absNew); err != nil {
+				result.Errors = append(result.Errors, c.FileName+": rename: "+err.Error())
+				continue
+			}
+
+			if err := db.UpdateArchivePath(cfg.DB, c.FileID, c.NewPath); err != nil {
+				result.Errors = append(result.Errors, c.FileName+": db update: "+err.Error())
+				continue
+			}
+
+			switch c.ChangeType {
+			case "promote":
+				result.Promoted++
+			case "new_dup":
+				result.NewDups++
+			}
+		}
+
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
 func isUnderRoot(absPath, absRoot string) bool {
 	return absPath == absRoot ||
 		len(absPath) > len(absRoot) &&

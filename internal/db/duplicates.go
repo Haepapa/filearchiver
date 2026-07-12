@@ -8,22 +8,46 @@ import (
 )
 
 // DuplicateGroup pairs a primary archived file with one or more duplicate
-// files that live under a `_duplicates/` sub-path with the same base name.
+// files that share the same content (by checksum) or the same file_name under
+// a `_duplicates/` path when no checksum is available.
 type DuplicateGroup struct {
 	FileName   string  `json:"file_name"`
-	Primary    *File   `json:"primary"`    // nil when the primary has been deleted
+	Checksum   string  `json:"checksum,omitempty"`
+	Primary    *File   `json:"primary"`    // nil when the primary has been deleted/moved
 	Duplicates []*File `json:"duplicates"` // always ≥ 1
 }
 
-// GetDuplicateGroups returns all duplicate groups.
-// Each group contains the non-duplicate primary (if it exists) and all
-// _duplicates counterparts matched by file_name.
+// RescanResult summarises the changes made during a checksum re-scan.
+type RescanResult struct {
+	Promoted int      `json:"promoted"`  // orphaned _duplicates/ files promoted to primary path
+	NewDups  int      `json:"new_dups"`  // previously-unlabelled files moved into _duplicates/
+	Errors   []string `json:"errors,omitempty"`
+}
+
+// RescanChange describes a single change the rescan wants to make.
+type RescanChange struct {
+	FileID      int64
+	OldPath     string
+	NewPath     string
+	FileName    string
+	ChangeType  string // "promote" | "new_dup"
+}
+
+
+// GetDuplicateGroups returns all duplicate groups using checksum-first grouping.
+// Files with a non-empty checksum are grouped by content so cross-name duplicates
+// are surfaced. Files without a checksum fall back to file_name grouping.
+// Each group contains the non-duplicate primary (if present) and all
+// _duplicates counterparts.
 func GetDuplicateGroups(database *sql.DB) ([]DuplicateGroup, error) {
 	rows, err := database.Query(`
-		SELECT id, original_path, archive_path, file_name, size, checksum, mod_time
+		SELECT id, original_path, archive_path, file_name, size,
+		       COALESCE(checksum,'') AS checksum, mod_time,
+		       COALESCE(proxy_path,'') AS proxy_path,
+		       COALESCE(proxy_status,'') AS proxy_status
 		FROM file_registry
 		WHERE trashed_at IS NULL
-		ORDER BY file_name, archive_path
+		ORDER BY id ASC
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("duplicate groups query: %w", err)
@@ -31,58 +55,112 @@ func GetDuplicateGroups(database *sql.DB) ([]DuplicateGroup, error) {
 	defer rows.Close()
 
 	type fileRow struct {
-		file  File
-		isDup bool
+		file File
 	}
 
-	// Collect all files, bucketed by file_name.
-	byName := make(map[string][]fileRow)
-	var nameOrder []string
-	seen := make(map[string]bool)
-
+	var allFiles []File
 	for rows.Next() {
 		var f File
 		var modTimeStr string
 		if err := rows.Scan(
 			&f.ID, &f.OriginalPath, &f.ArchivePath,
 			&f.FileName, &f.Size, &f.Checksum, &modTimeStr,
+			&f.ProxyPath, &f.ProxyStatus,
 		); err != nil {
 			return nil, err
 		}
 		f.ModTime = parseTime(modTimeStr)
 		f.Extension = fileExtension(f.FileName)
 		f.IsDuplicate = isDuplicate(f.ArchivePath)
-
-		if !seen[f.FileName] {
-			seen[f.FileName] = true
-			nameOrder = append(nameOrder, f.FileName)
-		}
-		byName[f.FileName] = append(byName[f.FileName], fileRow{file: f, isDup: f.IsDuplicate})
+		allFiles = append(allFiles, f)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	// Build groups: only include names that have at least one duplicate.
+	// ── Group by checksum (content-first) ────────────────────────────────────
+	byChecksum := make(map[string][]File)
+	var checksumOrder []string
+	seenChecksum := make(map[string]bool)
+
+	var noChecksumFiles []File // fall back to name-based grouping
+
+	for _, f := range allFiles {
+		if f.Checksum == "" {
+			noChecksumFiles = append(noChecksumFiles, f)
+			continue
+		}
+		if !seenChecksum[f.Checksum] {
+			seenChecksum[f.Checksum] = true
+			checksumOrder = append(checksumOrder, f.Checksum)
+		}
+		byChecksum[f.Checksum] = append(byChecksum[f.Checksum], f)
+	}
+
 	var groups []DuplicateGroup
-	for _, name := range nameOrder {
-		rows := byName[name]
+
+	// Checksum-based groups.
+	for _, ck := range checksumOrder {
+		files := byChecksum[ck]
+
 		var primary *File
 		var dups []*File
-
-		for i := range rows {
-			r := &rows[i]
-			if r.isDup {
-				cp := r.file
+		for i := range files {
+			f := &files[i]
+			if f.IsDuplicate {
+				cp := *f
 				dups = append(dups, &cp)
 			} else if primary == nil {
-				cp := r.file
+				cp := *f
 				primary = &cp
 			}
 		}
-
 		if len(dups) == 0 {
-			continue // no duplicate entries for this name
+			continue // no duplicate entries for this checksum
+		}
+
+		name := ""
+		if primary != nil {
+			name = primary.FileName
+		} else if len(dups) > 0 {
+			name = dups[0].FileName
+		}
+
+		groups = append(groups, DuplicateGroup{
+			FileName:   name,
+			Checksum:   ck,
+			Primary:    primary,
+			Duplicates: dups,
+		})
+	}
+
+	// Fall-back: file_name grouping for files without checksums.
+	byName := make(map[string][]File)
+	var nameOrder []string
+	seenName := make(map[string]bool)
+	for _, f := range noChecksumFiles {
+		if !seenName[f.FileName] {
+			seenName[f.FileName] = true
+			nameOrder = append(nameOrder, f.FileName)
+		}
+		byName[f.FileName] = append(byName[f.FileName], f)
+	}
+	for _, name := range nameOrder {
+		files := byName[name]
+		var primary *File
+		var dups []*File
+		for i := range files {
+			f := &files[i]
+			if f.IsDuplicate {
+				cp := *f
+				dups = append(dups, &cp)
+			} else if primary == nil {
+				cp := *f
+				primary = &cp
+			}
+		}
+		if len(dups) == 0 {
+			continue
 		}
 		groups = append(groups, DuplicateGroup{
 			FileName:   name,
@@ -90,8 +168,111 @@ func GetDuplicateGroups(database *sql.DB) ([]DuplicateGroup, error) {
 			Duplicates: dups,
 		})
 	}
+
 	return groups, nil
 }
+
+// PlanRescan analyses the file registry and returns the list of changes needed
+// to normalise duplicate state. Files are matched by a three-way fingerprint:
+// checksum + file size + extension — same content regardless of filename.
+//
+//   - "promote": a file in _duplicates/ is the only copy → move to primary path.
+//   - "new_dup":  two or more primary-path files share a fingerprint → keep the
+//     first (lowest ID), move the rest into a _duplicates/ sub-directory.
+func PlanRescan(database *sql.DB) ([]RescanChange, error) {
+	rows, err := database.Query(`
+		SELECT id, archive_path, file_name,
+		       COALESCE(checksum,'') AS checksum,
+		       COALESCE(size, 0)     AS size
+		FROM file_registry
+		WHERE trashed_at IS NULL AND checksum != ''
+		ORDER BY id ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("rescan query: %w", err)
+	}
+	defer rows.Close()
+
+	type entry struct {
+		ID          int64
+		ArchivePath string
+		FileName    string
+		Checksum    string
+		Size        int64
+		Ext         string
+		IsDup       bool
+	}
+
+	// Group by composite key: checksum + size + extension.
+	type key struct{ checksum string; size int64; ext string }
+	byKey := make(map[key][]entry)
+
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.ID, &e.ArchivePath, &e.FileName, &e.Checksum, &e.Size); err != nil {
+			return nil, err
+		}
+		e.Ext = strings.ToLower(strings.TrimPrefix(filepath.Ext(e.FileName), "."))
+		e.IsDup = isDuplicate(e.ArchivePath)
+		k := key{e.Checksum, e.Size, e.Ext}
+		byKey[k] = append(byKey[k], e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var changes []RescanChange
+
+	for _, files := range byKey {
+		var primaries, dups []entry
+		for _, f := range files {
+			if f.IsDup {
+				dups = append(dups, f)
+			} else {
+				primaries = append(primaries, f)
+			}
+		}
+
+		switch {
+		case len(primaries) == 0 && len(dups) >= 1:
+			// All copies are in _duplicates/ — promote the first (lowest ID).
+			canonical := dups[0]
+			newPath := DerivePrimaryPath(canonical.ArchivePath)
+			changes = append(changes, RescanChange{
+				FileID: canonical.ID, OldPath: canonical.ArchivePath, NewPath: newPath,
+				FileName: canonical.FileName, ChangeType: "promote",
+			})
+			// Any remaining orphaned dups stay as _duplicates/ (they have a new canonical now).
+
+		case len(primaries) > 1:
+			// Multiple primary-path copies — keep the first (lowest ID), move the rest.
+			canonical := primaries[0]
+			canonicalDir := filepath.Dir(canonical.ArchivePath)
+			dupDir := filepath.Join(canonicalDir, "_duplicates")
+			for _, extra := range primaries[1:] {
+				newPath := filepath.Join(dupDir, extra.FileName)
+				changes = append(changes, RescanChange{
+					FileID: extra.ID, OldPath: extra.ArchivePath, NewPath: newPath,
+					FileName: extra.FileName, ChangeType: "new_dup",
+				})
+			}
+		// case len(primaries) == 1: already correct, no action needed.
+		}
+	}
+	return changes, nil
+}
+
+// UpdateArchivePath updates the archive_path for a single file registry record.
+func UpdateArchivePath(database *sql.DB, id int64, newPath string) error {
+	_, err := database.Exec(
+		`UPDATE file_registry SET archive_path = ? WHERE id = ?`, newPath, id,
+	)
+	if err != nil {
+		return fmt.Errorf("update archive path id=%d: %w", id, err)
+	}
+	return nil
+}
+
 
 // DeleteFileRecord removes a file from the file_registry table.
 // Actual disk deletion must be performed by the caller before this call.
