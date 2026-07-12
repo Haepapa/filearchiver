@@ -981,6 +981,26 @@ document.addEventListener('alpine:init', () => {
       this.loadNavData();
     },
 
+    async regenViewerProxy() {
+      if (!this.viewerFile) return;
+      const id = this.viewerFile.id;
+      const res = await fetch(`/api/files/${id}/regenerate-proxy`, { method: 'POST' });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        this.showToast('Error: ' + (j.error || res.status));
+        return;
+      }
+      // Refresh the viewer file so the proxy status badge updates immediately.
+      const fileRes = await fetch(`/api/files/${id}`);
+      if (fileRes.ok) {
+        const updated = await fileRes.json();
+        this.viewerFile = updated;
+        const idx = this.files.findIndex(f => f.id === id);
+        if (idx !== -1) this.files[idx] = updated;
+      }
+      this.showToast('Proxy queued for regeneration');
+    },
+
     async restoreTrashFile(file) {
       const res = await fetch(`/api/trash/${file.id}/restore`, { method: 'POST' });
       if (!res.ok) {

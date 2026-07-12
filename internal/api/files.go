@@ -144,6 +144,44 @@ func handleBulkTrashFiles(cfg Config) http.HandlerFunc {
 	}
 }
 
+// handleRegenerateProxy resets a file's proxy status to 'pending' and deletes
+// any existing proxy file on disk so the worker will regenerate it.
+func handleRegenerateProxy(cfg Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := parseID(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid file id")
+			return
+		}
+
+		file, err := db.GetFile(cfg.DB, id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if file == nil {
+			writeError(w, http.StatusNotFound, "file not found")
+			return
+		}
+
+		// Delete the existing proxy file from disk if present.
+		if file.ProxyPath != "" {
+			if removeErr := os.Remove(file.ProxyPath); removeErr != nil && !os.IsNotExist(removeErr) {
+				writeError(w, http.StatusInternalServerError, "failed to remove proxy file: "+removeErr.Error())
+				return
+			}
+		}
+
+		// Reset proxy status to pending so the worker picks it up.
+		if err := db.ResetFileProxy(cfg.DB, id); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{"status": "pending"})
+	}
+}
+
 // writeJSON serialises v as JSON with the given status code.
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.WriteHeader(status)

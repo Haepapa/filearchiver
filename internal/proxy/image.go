@@ -40,7 +40,14 @@ func convertRaw(srcPath, proxyPath string, cfg ImageConfig) error {
 	dcrawCmd := exec.Command("nice", "-n", "19",
 		"dcraw", "-c", "-w", "-T", srcPath)
 	convertCmd := exec.Command("nice", "-n", "19",
-		"convert", "-", "-resize", resizeArg, "-quality", qualityArg, "-auto-orient", proxyPath)
+		"convert", "-",
+		"-resize", resizeArg,
+		"-colorspace", "sRGB",
+		"-depth", "8",
+		"-strip",
+		"-quality", qualityArg,
+		"-auto-orient",
+		proxyPath)
 
 	pipe, err := dcrawCmd.StdoutPipe()
 	if err != nil {
@@ -69,6 +76,8 @@ func convertRaw(srcPath, proxyPath string, cfg ImageConfig) error {
 }
 
 // convertStandard uses ImageMagick to convert a standard image to a JPEG proxy.
+// Flags ensure browser-safe output: sRGB color space, 8-bit depth, stripped
+// metadata, and correct orientation applied from EXIF.
 func convertStandard(srcPath, proxyPath string, cfg ImageConfig) error {
 	resizeArg := resizeGeometry(cfg.MaxWidth)
 	qualityArg := fmt.Sprintf("%d", cfg.Quality)
@@ -77,8 +86,11 @@ func convertStandard(srcPath, proxyPath string, cfg ImageConfig) error {
 	cmd := exec.Command("nice", "-n", "19",
 		"convert", srcPath+"[0]",
 		"-resize", resizeArg,
+		"-auto-orient",          // apply EXIF rotation so browsers see it upright
+		"-colorspace", "sRGB",   // normalise to sRGB — browsers can't handle CMYK or wide-gamut
+		"-depth", "8",           // force 8-bit — browsers don't support 16-bit JPEG
+		"-strip",                // remove ICC profiles, EXIF, XMP — reduces size, avoids colour-shift quirks
 		"-quality", qualityArg,
-		"-auto-orient",
 		proxyPath,
 	)
 	out, err := cmd.CombinedOutput()
