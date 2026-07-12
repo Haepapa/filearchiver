@@ -729,6 +729,13 @@ document.addEventListener('alpine:init', () => {
       this.openViewer(file);
     },
 
+    // Opens the viewer for a file in the Duplicates tab.
+    // viewerIndex = -1 disables prev/next navigation (no surrounding list).
+    openViewerFromDup(file) {
+      this.viewerIndex = -1;
+      this.openViewer(file);
+    },
+
     highlight(text, query) {
       if (!query || !text) return this._escapeHTML(text || '');
       const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

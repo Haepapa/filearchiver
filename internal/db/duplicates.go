@@ -172,16 +172,18 @@ func GetDuplicateGroups(database *sql.DB) ([]DuplicateGroup, error) {
 	return groups, nil
 }
 
-// PlanRescan analyses the file registry by checksum and returns the list of
-// changes needed to normalise duplicate state:
+// PlanRescan analyses the file registry and returns the list of changes needed
+// to normalise duplicate state. Files are matched by a three-way fingerprint:
+// checksum + file size + extension — same content regardless of filename.
 //
-//   - "promote": a file currently in _duplicates/ is the only copy → move to
-//     its derived primary path.
-//   - "new_dup": two or more primary-path files share a checksum → all but the
-//     first (lowest ID) should move into a _duplicates/ sub-directory.
+//   - "promote": a file in _duplicates/ is the only copy → move to primary path.
+//   - "new_dup":  two or more primary-path files share a fingerprint → keep the
+//     first (lowest ID), move the rest into a _duplicates/ sub-directory.
 func PlanRescan(database *sql.DB) ([]RescanChange, error) {
 	rows, err := database.Query(`
-		SELECT id, archive_path, file_name, COALESCE(checksum,'') AS checksum
+		SELECT id, archive_path, file_name,
+		       COALESCE(checksum,'') AS checksum,
+		       COALESCE(size, 0)     AS size
 		FROM file_registry
 		WHERE trashed_at IS NULL AND checksum != ''
 		ORDER BY id ASC
@@ -196,17 +198,24 @@ func PlanRescan(database *sql.DB) ([]RescanChange, error) {
 		ArchivePath string
 		FileName    string
 		Checksum    string
+		Size        int64
+		Ext         string
 		IsDup       bool
 	}
 
-	byChecksum := make(map[string][]entry)
+	// Group by composite key: checksum + size + extension.
+	type key struct{ checksum string; size int64; ext string }
+	byKey := make(map[key][]entry)
+
 	for rows.Next() {
 		var e entry
-		if err := rows.Scan(&e.ID, &e.ArchivePath, &e.FileName, &e.Checksum); err != nil {
+		if err := rows.Scan(&e.ID, &e.ArchivePath, &e.FileName, &e.Checksum, &e.Size); err != nil {
 			return nil, err
 		}
+		e.Ext = strings.ToLower(strings.TrimPrefix(filepath.Ext(e.FileName), "."))
 		e.IsDup = isDuplicate(e.ArchivePath)
-		byChecksum[e.Checksum] = append(byChecksum[e.Checksum], e)
+		k := key{e.Checksum, e.Size, e.Ext}
+		byKey[k] = append(byKey[k], e)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -214,7 +223,7 @@ func PlanRescan(database *sql.DB) ([]RescanChange, error) {
 
 	var changes []RescanChange
 
-	for _, files := range byChecksum {
+	for _, files := range byKey {
 		var primaries, dups []entry
 		for _, f := range files {
 			if f.IsDup {
@@ -225,27 +234,29 @@ func PlanRescan(database *sql.DB) ([]RescanChange, error) {
 		}
 
 		switch {
-		case len(primaries) == 0 && len(dups) == 1:
-			// Orphaned duplicate — unique content, no primary: promote.
-			d := dups[0]
-			newPath := DerivePrimaryPath(d.ArchivePath)
+		case len(primaries) == 0 && len(dups) >= 1:
+			// All copies are in _duplicates/ — promote the first (lowest ID).
+			canonical := dups[0]
+			newPath := DerivePrimaryPath(canonical.ArchivePath)
 			changes = append(changes, RescanChange{
-				FileID: d.ID, OldPath: d.ArchivePath, NewPath: newPath,
-				FileName: d.FileName, ChangeType: "promote",
+				FileID: canonical.ID, OldPath: canonical.ArchivePath, NewPath: newPath,
+				FileName: canonical.FileName, ChangeType: "promote",
 			})
+			// Any remaining orphaned dups stay as _duplicates/ (they have a new canonical now).
 
 		case len(primaries) > 1:
-			// Multiple primaries with same checksum — keep first, move rest to _dups.
+			// Multiple primary-path copies — keep the first (lowest ID), move the rest.
 			canonical := primaries[0]
 			canonicalDir := filepath.Dir(canonical.ArchivePath)
+			dupDir := filepath.Join(canonicalDir, "_duplicates")
 			for _, extra := range primaries[1:] {
-				dupDir := filepath.Join(canonicalDir, "_duplicates")
 				newPath := filepath.Join(dupDir, extra.FileName)
 				changes = append(changes, RescanChange{
 					FileID: extra.ID, OldPath: extra.ArchivePath, NewPath: newPath,
 					FileName: extra.FileName, ChangeType: "new_dup",
 				})
 			}
+		// case len(primaries) == 1: already correct, no action needed.
 		}
 	}
 	return changes, nil

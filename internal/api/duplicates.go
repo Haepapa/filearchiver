@@ -237,18 +237,25 @@ func handleBulkDeleteIdentical(cfg Config) http.HandlerFunc {
 // helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-// handleRescanDuplicates performs a full checksum-based re-scan of the archive:
-//   - Orphaned _duplicates/ entries (unique checksum, no primary) → promoted to
+// handleRescanDuplicates performs a full fingerprint-based re-scan of the archive:
+//   - Orphaned _duplicates/ entries (unique content, no primary) → promoted to
 //     their derived primary path.
-//   - Multiple primary-path files with the same checksum → the extras are moved
+//   - Multiple primary-path files sharing the same fingerprint → extras are moved
 //     into a _duplicates/ subdirectory alongside the canonical primary.
 //
+// The proxy worker is paused for the duration of the rescan to reduce system load.
 // Requires confirm=true query param as a safety guard.
 func handleRescanDuplicates(cfg Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("confirm") != "true" {
 			writeError(w, http.StatusBadRequest, "confirm=true is required")
 			return
+		}
+
+		// Pause proxy generation while files are being reorganised.
+		if cfg.ProxyWorker != nil {
+			cfg.ProxyWorker.Pause()
+			defer cfg.ProxyWorker.Resume()
 		}
 
 		changes, err := db.PlanRescan(cfg.DB)
