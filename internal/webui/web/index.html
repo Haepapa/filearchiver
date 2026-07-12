@@ -368,6 +368,7 @@
                     @click="filesSelecting ? toggleFileSelect(f.id) : openViewer(f, idx)">
                   <td x-show="filesSelecting" class="px-3 py-3 w-8" @click.stop="toggleFileSelect(f.id)">
                     <input type="checkbox" :checked="isFileSelected(f.id)"
+                      @click.stop
                       @change="toggleFileSelect(f.id)"
                       class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                   </td>
@@ -429,6 +430,7 @@
                      class="absolute top-2 left-2 z-10"
                      @click.stop="toggleFileSelect(f.id)">
                   <input type="checkbox" :checked="isFileSelected(f.id)"
+                    @click.stop
                     @change="toggleFileSelect(f.id)"
                     class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 shadow" />
                 </div>
