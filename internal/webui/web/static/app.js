@@ -64,6 +64,9 @@ document.addEventListener('alpine:init', () => {
 
     // ── Settings page ────────────────────────────────────────────────────────
     serverSettings:  null,
+    proxyStatus:     null,
+    proxySettings:   {},
+    proxyStatusPollTimer: null,
 
     // ── Media viewer ─────────────────────────────────────────────────────────
     viewerOpen:            false,
@@ -172,6 +175,7 @@ document.addEventListener('alpine:init', () => {
 
       this.$watch('page', p => {
         this.updateHash();
+        if (p !== 'settings') this._stopProxyPoll();
         if (p === 'files')        this.loadFiles();
         if (p === 'history')      this.loadHistory();
         if (p === 'tags')         this.loadTagsPage();
@@ -596,6 +600,15 @@ document.addEventListener('alpine:init', () => {
     thumbnailURL(id)  { return `/api/files/${id}/thumbnail`; },
     downloadURL(id)   { return `/api/files/${id}/content?download=true`; },
     contentURL(id)    { return `/api/files/${id}/content`; },
+    proxyURL(id)      { return `/api/files/${id}/proxy`; },
+
+    // Returns the best URL to play/display a file: proxy if available, else content.
+    bestMediaURL(file) {
+      if (file && file.proxy_status === 'done' && file.proxy_path) {
+        return this.proxyURL(file.id);
+      }
+      return this.contentURL(file.id);
+    },
 
     isImageExt(ext) {
       return ['jpg','jpeg','png','gif','bmp','webp','svg','tiff','tif','heic','heif'].includes(ext);
@@ -709,6 +722,58 @@ document.addEventListener('alpine:init', () => {
         const res = await fetch('/api/settings');
         this.serverSettings = await res.json();
       } catch(e) { console.error('settings', e); }
+      await this.loadProxySettings();
+      await this.loadProxyStatus();
+      this._startProxyPoll();
+    },
+    _startProxyPoll() {
+      this._stopProxyPoll();
+      this.proxyStatusPollTimer = setInterval(() => {
+        if (this.page === 'settings') this.loadProxyStatus();
+      }, 5000);
+    },
+    _stopProxyPoll() {
+      if (this.proxyStatusPollTimer) {
+        clearInterval(this.proxyStatusPollTimer);
+        this.proxyStatusPollTimer = null;
+      }
+    },
+    async loadProxyStatus() {
+      try {
+        const res = await fetch('/api/proxy/status');
+        this.proxyStatus = await res.json();
+      } catch(e) { console.error('proxy status', e); }
+    },
+    async loadProxySettings() {
+      try {
+        const res = await fetch('/api/proxy/settings');
+        this.proxySettings = await res.json();
+      } catch(e) { console.error('proxy settings', e); }
+    },
+    async saveProxySettings() {
+      try {
+        const res = await fetch('/api/proxy/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.proxySettings),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        this.showToast('Proxy settings saved');
+        await this.loadProxyStatus();
+      } catch(e) { this.showToast('Error: ' + e.message); }
+    },
+    async proxyPause() {
+      await fetch('/api/proxy/pause', { method: 'POST' });
+      await this.loadProxyStatus();
+    },
+    async proxyResume() {
+      await fetch('/api/proxy/resume', { method: 'POST' });
+      await this.loadProxyStatus();
+    },
+    async proxyRestart() {
+      await fetch('/api/proxy/restart', { method: 'POST' });
+      await this.loadProxyStatus();
+      this.showToast('Failed proxies reset to pending');
     },
     async loadDuplicates() {
       this.dupLoading = true;

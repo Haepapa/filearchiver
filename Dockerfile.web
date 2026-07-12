@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-s -w' -o filearchiver-web ./
 # Runtime stage — minimal image
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates tzdata
+RUN apk --no-cache add ca-certificates tzdata ffmpeg imagemagick dcraw
 
 # Create non-root user
 RUN addgroup -S archiver && adduser -S archiver -G archiver
@@ -26,14 +26,14 @@ COPY --from=builder /build/filearchiver-web /app/filearchiver-web
 # /data/db   → mount your filearchiver.db here
 # /data/archive → mount your archive root here
 # /data/thumbs  → thumbnail cache (optional, can be tmpfs)
-RUN mkdir -p /data/db /data/archive /data/thumbs && \
+RUN mkdir -p /data/db /data/archive /data/thumbs /data/proxies && \
     chown -R archiver:archiver /data
 
-VOLUME ["/data/db", "/data/archive", "/data/thumbs"]
+VOLUME ["/data/db", "/data/archive", "/data/thumbs", "/data/proxies"]
 
 USER archiver
 
 EXPOSE 8080
 
 ENTRYPOINT ["/app/filearchiver-web"]
-CMD ["-db", "/data/db/filearchiver.db", "-archive", "/data/archive", "-thumbdir", "/data/thumbs", "-port", "8080", "-host", "0.0.0.0"]
+CMD ["-db", "/data/db/filearchiver.db", "-archive", "/data/archive", "-thumbdir", "/data/thumbs", "-proxydir", "/data/proxies", "-port", "8080", "-host", "0.0.0.0"]

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 
 	"filearchiver/internal/api"
 	"filearchiver/internal/db"
+	"filearchiver/internal/proxy"
 )
 
 func main() {
@@ -19,6 +21,8 @@ func main() {
 	host := flag.String("host", "0.0.0.0", "Bind address")
 	readonly := flag.Bool("readonly", false, "Disable all write/delete operations")
 	thumbDir := flag.String("thumbdir", "", "Directory to cache thumbnails (default: <db_dir>/.thumbcache)")
+	proxyDir := flag.String("proxydir", "", "Directory to store proxy/preview files (default: <db_dir>/.proxycache)")
+	noProxy := flag.Bool("no-proxy", false, "Disable background proxy generation worker")
 	flag.Parse()
 
 	if *dbPath == "" {
@@ -35,6 +39,9 @@ func main() {
 	if *thumbDir == "" {
 		*thumbDir = filepath.Join(filepath.Dir(*dbPath), ".thumbcache")
 	}
+	if *proxyDir == "" {
+		*proxyDir = filepath.Join(filepath.Dir(*dbPath), ".proxycache")
+	}
 
 	database, err := db.Open(*dbPath)
 	if err != nil {
@@ -46,12 +53,26 @@ func main() {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
+	// Seed proxy settings defaults (no-op if already present).
+	if err := db.InitProxySettings(database); err != nil {
+		log.Fatalf("Failed to init proxy settings: %v", err)
+	}
+
 	cfg := api.Config{
 		DB:          database,
 		DBPath:      *dbPath,
 		ArchiveRoot: *archivePath,
 		Readonly:    *readonly,
 		ThumbDir:    *thumbDir,
+		ProxyDir:    *proxyDir,
+	}
+
+	// Start background proxy worker unless disabled.
+	if !*readonly && !*noProxy {
+		worker := proxy.NewWorker(database, *proxyDir)
+		worker.Start(context.Background())
+		defer worker.Stop()
+		cfg.ProxyWorker = worker
 	}
 
 	router := api.NewRouter(cfg)

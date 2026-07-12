@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"filearchiver/internal/proxy"
 	"filearchiver/internal/webui"
 )
 
@@ -17,6 +18,8 @@ type Config struct {
 	ArchiveRoot string
 	Readonly    bool
 	ThumbDir    string
+	ProxyDir    string
+	ProxyWorker *proxy.Worker
 }
 
 // NewRouter builds and returns the chi router for the web UI server.
@@ -31,6 +34,7 @@ func NewRouter(cfg Config) http.Handler {
 	// not wrapped by the jsonContentType middleware (they stream binary content).
 	r.Get("/api/files/{id}/content",   handleFileContent(cfg))
 	r.Get("/api/files/{id}/thumbnail", handleFileThumbnail(cfg))
+	r.Get("/api/files/{id}/proxy",     handleFileProxy(cfg))
 
 	// JSON API routes
 	r.Route("/api", func(r chi.Router) {
@@ -64,6 +68,15 @@ func NewRouter(cfg Config) http.Handler {
 
 		r.Route("/file-actions", func(r chi.Router) {
 			r.Get("/", handleListFileActions(cfg))
+		})
+
+		r.Route("/proxy", func(r chi.Router) {
+			r.Get("/status", handleProxyStatus(cfg))
+			r.Post("/pause", readonlyGuard(cfg, handleProxyPause(cfg)))
+			r.Post("/resume", readonlyGuard(cfg, handleProxyResume(cfg)))
+			r.Post("/restart", readonlyGuard(cfg, handleProxyRestart(cfg)))
+			r.Get("/settings", handleGetProxySettings(cfg))
+			r.Put("/settings", readonlyGuard(cfg, handleSetProxySettings(cfg)))
 		})
 
 		r.Route("/history", func(r chi.Router) {
