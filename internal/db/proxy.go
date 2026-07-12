@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -125,7 +126,7 @@ type ProxyQueueItem struct {
 // generation (proxy_status = 'pending') and not trashed.
 func ListFilesNeedingProxy(db *sql.DB, limit int) ([]ProxyQueueItem, error) {
 	rows, err := db.Query(`
-		SELECT id, archive_path, extension, file_size
+		SELECT id, archive_path, file_name, size
 		FROM   file_registry
 		WHERE  proxy_status = ?
 		AND    trashed_at IS NULL
@@ -140,33 +141,50 @@ func ListFilesNeedingProxy(db *sql.DB, limit int) ([]ProxyQueueItem, error) {
 	var items []ProxyQueueItem
 	for rows.Next() {
 		var it ProxyQueueItem
-		if err := rows.Scan(&it.ID, &it.ArchivePath, &it.Extension, &it.FileSize); err != nil {
+		var fileName string
+		if err := rows.Scan(&it.ID, &it.ArchivePath, &fileName, &it.FileSize); err != nil {
 			return nil, err
 		}
+		// Derive extension from file_name (no dedicated column in file_registry).
+		it.Extension = fileNameExtension(fileName)
 		items = append(items, it)
 	}
 	return items, rows.Err()
 }
 
+// fileNameExtension returns the lowercase extension (without dot) of a filename,
+// e.g. "IMG_5432.CR2" → "cr2".  Returns "" for files with no extension.
+func fileNameExtension(name string) string {
+	for i := len(name) - 1; i >= 0; i-- {
+		if name[i] == '.' {
+			return strings.ToLower(name[i+1:])
+		}
+		if name[i] == '/' || name[i] == '\\' {
+			break
+		}
+	}
+	return ""
+}
+
 // EnqueueEligibleFiles marks NULL-status files as 'pending' or 'skipped'
-// based on extension and minimum file size. Runs once on worker start and
-// whenever settings change.
-func EnqueueEligibleFiles(db *sql.DB, minBytes int64, supportedExts map[string]bool) (int64, error) {
-	// Mark eligible un-evaluated files as pending.
+// based on the minimum file size. Extension filtering happens at processing
+// time in the worker (file_registry has no dedicated extension column).
+// Runs once on worker start and whenever settings change.
+func EnqueueEligibleFiles(db *sql.DB, minBytes int64, _ map[string]bool) (int64, error) {
+	// Mark files above the size threshold as pending.
 	res, err := db.Exec(`
 		UPDATE file_registry
 		SET    proxy_status = ?
 		WHERE  proxy_status IS NULL
 		AND    trashed_at   IS NULL
-		AND    file_size    >= ?
-		AND    LOWER(extension) IN (`+inClause(len(supportedExts))+`)
-	`, append([]interface{}{ProxyStatusPending, minBytes}, extArgs(supportedExts)...)...)
+		AND    size         >= ?
+	`, ProxyStatusPending, minBytes)
 	if err != nil {
 		return 0, err
 	}
 	enqueued, _ := res.RowsAffected()
 
-	// Mark all remaining NULL-status files as skipped.
+	// Mark all remaining NULL-status files (too small) as skipped.
 	if _, err := db.Exec(`
 		UPDATE file_registry
 		SET    proxy_status = ?
@@ -230,6 +248,17 @@ func ResetFailedProxies(db *sql.DB) (int64, error) {
 	return n, nil
 }
 
+// ResetSkippedProxies resets all 'skipped' rows back to NULL so they are
+// re-evaluated by EnqueueEligibleFiles. Useful after changing the min file
+// size setting or after a bug fix that caused incorrect skipping.
+func ResetSkippedProxies(db *sql.DB) error {
+	_, err := db.Exec(
+		`UPDATE file_registry SET proxy_status = NULL WHERE proxy_status = ?`,
+		ProxyStatusSkipped,
+	)
+	return err
+}
+
 // ResetProcessingProxies resets any stale 'processing' rows (left over from
 // an unclean shutdown) back to 'pending'.
 func ResetProcessingProxies(db *sql.DB) error {
@@ -287,25 +316,4 @@ func GetProxyStats(db *sql.DB) (ProxyStats, error) {
 	_ = row.Scan(&stats.CurrentFile)
 
 	return stats, nil
-}
-
-// inClause builds a "(?,?,?)" placeholder string for n items.
-func inClause(n int) string {
-	if n == 0 {
-		return "''"
-	}
-	s := "?"
-	for i := 1; i < n; i++ {
-		s += ",?"
-	}
-	return s
-}
-
-// extArgs converts a set of extension strings to a []interface{} for db.Exec.
-func extArgs(exts map[string]bool) []interface{} {
-	args := make([]interface{}, 0, len(exts))
-	for ext := range exts {
-		args = append(args, ext)
-	}
-	return args
 }
