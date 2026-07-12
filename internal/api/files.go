@@ -27,6 +27,7 @@ func handleListFiles(cfg Config) http.HandlerFunc {
 			Year:           q.Get("year"),
 			Month:          q.Get("month"),
 			DuplicatesOnly: q.Get("duplicates_only") == "true" || q.Get("duplicates_only") == "1",
+			ProxyFilter:    q.Get("proxy"),
 			Page:           page,
 			PerPage:        perPage,
 			Sort:           q.Get("sort"),

@@ -20,6 +20,7 @@ document.addEventListener('alpine:init', () => {
     filterMonth:      '',
     filterTag:        '',
     filterDuplicates: false,
+    filterProxy:      '',   // '' | 'done' | 'none'
 
     // ── Dashboard data ───────────────────────────────────────────────────────
     stats:         null,
@@ -147,6 +148,10 @@ document.addEventListener('alpine:init', () => {
         c.push({ label: this.filterTag,                            key: 'tag' });
       if (this.filterDuplicates)
         c.push({ label: 'duplicates only',                         key: 'duplicates' });
+      if (this.filterProxy === 'done')
+        c.push({ label: '✓ proxy ready',                           key: 'proxy' });
+      if (this.filterProxy === 'none')
+        c.push({ label: '⏳ no proxy yet',                         key: 'proxy' });
       return c;
     },
 
@@ -190,6 +195,7 @@ document.addEventListener('alpine:init', () => {
       this.$watch('filesQuery', () => { this.filesPage = 1; this.loadFiles(); });
       this.$watch('filesSort',  () => { this.filesPage = 1; this.loadFiles(); });
       this.$watch('filesOrder', () => { this.filesPage = 1; this.loadFiles(); });
+      this.$watch('filterProxy',() => { this.filesPage = 1; this.loadFiles(); });
 
       this.$watch('historyPage', () => this.loadHistory());
       this.$watch('historyStatusFilter',  () => { this.historyPage = 1; this.loadHistory(); });
@@ -258,6 +264,7 @@ document.addEventListener('alpine:init', () => {
         if (this.filterMonth)      p.set('month',          this.filterMonth);
         if (this.filterTag)        p.set('tag',            this.filterTag);
         if (this.filterDuplicates) p.set('duplicates_only','true');
+        if (this.filterProxy)      p.set('proxy', this.filterProxy);
 
         const res = await fetch('/api/files?' + p);
         this.filesResult = await res.json();
@@ -337,6 +344,7 @@ document.addEventListener('alpine:init', () => {
       this.filterMonth      = '';
       this.filterTag        = '';
       this.filterDuplicates = false;
+      this.filterProxy      = '';
       this.filesQuery       = '';
       this.filesPage        = 1;
 
@@ -346,6 +354,8 @@ document.addEventListener('alpine:init', () => {
         case 'month':      this.filterYear = val; this.filterMonth = val2; break;
         case 'tag':        this.filterTag        = val;  break;
         case 'duplicates': this.filterDuplicates = true; break;
+        case 'proxy-done': this.filterProxy      = 'done'; break;
+        case 'proxy-none': this.filterProxy      = 'none'; break;
       }
       this.page = 'files';
       this.loadFiles();
@@ -358,6 +368,7 @@ document.addEventListener('alpine:init', () => {
         case 'month':      this.filterMonth      = ''; break;
         case 'tag':        this.filterTag        = ''; break;
         case 'duplicates': this.filterDuplicates = false; break;
+        case 'proxy':      this.filterProxy      = ''; break;
       }
       this.filesPage = 1;
       this.loadFiles();
@@ -365,7 +376,7 @@ document.addEventListener('alpine:init', () => {
 
     clearAllFilters() {
       this.filterExt = ''; this.filterYear = ''; this.filterMonth = '';
-      this.filterTag = ''; this.filterDuplicates = false;
+      this.filterTag = ''; this.filterDuplicates = false; this.filterProxy = '';
       this.filesQuery = ''; this.filesPage = 1;
       this.loadFiles();
     },
