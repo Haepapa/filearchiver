@@ -30,15 +30,24 @@ func ConvertImage(srcPath, proxyPath string, cfg ImageConfig) error {
 	return convertStandard(srcPath, proxyPath, cfg)
 }
 
-// convertRaw uses dcraw to demosaic the RAW file and pipes the TIFF output
-// into ImageMagick for resizing and JPEG encoding.
+// dcrawBin returns the best available RAW decoder.
+// dcraw_emu (from libraw) supports newer formats such as CR3; prefer it when present.
+func dcrawBin() string {
+	if _, err := exec.LookPath("dcraw_emu"); err == nil {
+		return "dcraw_emu"
+	}
+	return "dcraw"
+}
+
+// convertRaw uses dcraw/dcraw_emu to demosaic the RAW file and pipes the TIFF
+// output into ImageMagick for resizing and JPEG encoding.
 func convertRaw(srcPath, proxyPath string, cfg ImageConfig) error {
 	resizeArg := resizeGeometry(cfg.MaxWidth)
 	qualityArg := fmt.Sprintf("%d", cfg.Quality)
 
-	// dcraw -c : write to stdout, -w : use camera white balance, -T : TIFF output
+	// -c : write to stdout, -w : camera white balance, -T : TIFF output
 	dcrawCmd := exec.Command("nice", "-n", "19",
-		"dcraw", "-c", "-w", "-T", srcPath)
+		dcrawBin(), "-c", "-w", "-T", srcPath)
 	convertCmd := exec.Command("nice", "-n", "19",
 		"convert", "-",
 		"-resize", resizeArg,
