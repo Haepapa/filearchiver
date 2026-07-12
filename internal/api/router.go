@@ -57,6 +57,7 @@ func NewRouter(cfg Config) http.Handler {
 		r.Route("/duplicates", func(r chi.Router) {
 			r.Get("/", handleListDuplicates(cfg))
 			r.Post("/bulk-delete-identical", readonlyGuard(cfg, handleBulkDeleteIdentical(cfg)))
+			r.Post("/rescan", readonlyGuard(cfg, handleRescanDuplicates(cfg)))
 			r.Post("/{id}/promote", readonlyGuard(cfg, handlePromoteDuplicate(cfg)))
 		})
 

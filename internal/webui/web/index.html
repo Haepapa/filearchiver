@@ -943,16 +943,29 @@
       <div x-show="page === 'duplicates'" class="p-6 max-w-6xl mx-auto">
 
         <!-- Header row -->
-        <div class="flex items-center justify-between mb-6">
+        <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
           <div>
             <h1 class="text-xl font-semibold text-gray-800">Duplicate Files</h1>
             <p class="text-sm text-gray-500 mt-0.5"
                x-text="dupGroups.length + ' group' + (dupGroups.length === 1 ? '' : 's') + ' found'"></p>
           </div>
-          <div class="flex gap-2">
+          <div class="flex flex-wrap gap-2">
             <button @click="refreshDuplicates()"
               class="px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-100 text-sm transition-colors">
               ↺ Refresh
+            </button>
+            <button @click="confirmRescan()"
+              :disabled="dupRescanLoading"
+              class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm font-medium disabled:opacity-40 transition-colors">
+              <svg x-show="!dupRescanLoading" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+              <svg x-show="dupRescanLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+              </svg>
+              Re-scan
             </button>
             <button @click="confirmBulkDelete()"
               :disabled="identicalCount === 0"
@@ -966,6 +979,34 @@
                 class="bg-white/20 px-1.5 rounded text-xs" x-text="'(' + identicalCount + ')'"></span>
             </button>
           </div>
+        </div>
+
+        <!-- Re-scan result banner -->
+        <div x-show="dupRescanResult" x-transition
+             class="mb-4 px-4 py-3 rounded-xl border border-blue-200 bg-blue-50 text-sm text-blue-800 flex items-start gap-3">
+          <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <div class="flex-1">
+            <p class="font-medium">Re-scan complete</p>
+            <p class="mt-0.5">
+              <span x-text="dupRescanResult?.promoted ?? 0"></span> orphaned duplicate(s) promoted to primary path ·
+              <span x-text="dupRescanResult?.new_dups ?? 0"></span> new duplicate(s) moved to _duplicates/
+            </p>
+            <template x-if="dupRescanResult?.errors?.length > 0">
+              <ul class="mt-1 text-xs text-red-600 list-disc list-inside">
+                <template x-for="e in dupRescanResult.errors" :key="e">
+                  <li x-text="e"></li>
+                </template>
+              </ul>
+            </template>
+          </div>
+          <button @click="dupRescanResult = null" class="text-blue-400 hover:text-blue-600 flex-shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
         </div>
 
         <!-- Loading / empty states -->
@@ -1098,16 +1139,14 @@
                           </svg>
                           Delete duplicate
                         </button>
-                        <template x-if="g.primary">
-                          <button @click="confirmPromote(dup, g)"
-                            class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium transition-colors">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M5 10l7-7m0 0l7 7m-7-7v18"/>
-                            </svg>
-                            Promote (replace primary)
-                          </button>
-                        </template>
+                        <button @click="confirmPromote(dup, g)"
+                          class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium transition-colors">
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M5 10l7-7m0 0l7 7m-7-7v18"/>
+                          </svg>
+                          <span x-text="g.primary ? 'Promote (replace primary)' : 'Promote to primary'"></span>
+                        </button>
                       </div>
                     </div>
                   </template>
