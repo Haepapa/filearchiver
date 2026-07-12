@@ -4,6 +4,10 @@ document.addEventListener('alpine:init', () => {
     // ── Page navigation ──────────────────────────────────────────────────────
     page: 'dashboard',
 
+    // ── Mobile UI state ──────────────────────────────────────────────────────
+    mobileMenuOpen:    false,
+    mobileSidebarOpen: false,
+
     // ── Sidebar nav state ────────────────────────────────────────────────────
     navTypesOpen:     true,
     navDatesOpen:     true,
@@ -355,6 +359,7 @@ document.addEventListener('alpine:init', () => {
       this.filterProxy      = '';
       this.filesQuery       = '';
       this.filesPage        = 1;
+      this.mobileSidebarOpen = false; // close mobile sidebar after filter tap
 
       switch (key) {
         case 'ext':        this.filterExt        = val;  break;
@@ -386,6 +391,7 @@ document.addEventListener('alpine:init', () => {
       this.filterExt = ''; this.filterYear = ''; this.filterMonth = '';
       this.filterTag = ''; this.filterDuplicates = false; this.filterProxy = '';
       this.filesQuery = ''; this.filesPage = 1;
+      this.mobileSidebarOpen = false;
       this.loadFiles();
     },
 
