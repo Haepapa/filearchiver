@@ -23,9 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       dcraw \
       libraw-bin \
     && rm -rf /var/lib/apt/lists/* \
-    # libraw-bin provides dcraw_emu — symlink as 'dcraw' fallback if package dcraw absent
-    && (which dcraw > /dev/null 2>&1 || \
-        (which dcraw_emu > /dev/null 2>&1 && ln -s "$(which dcraw_emu)" /usr/local/bin/dcraw)) \
+    # Always prefer dcraw_emu (libraw-bin) over the older dcraw — dcraw_emu supports CR3
+    # Use -sf to force-overwrite the system dcraw if present
+    && (which dcraw_emu > /dev/null 2>&1 && ln -sf "$(which dcraw_emu)" /usr/local/bin/dcraw) \
     || true
 
 # Create non-root user
