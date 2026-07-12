@@ -11,21 +11,34 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-s -w' -o filearchiver-web ./cmd/web/
 
-# Runtime stage — minimal image
-FROM alpine:latest
+# Runtime stage — Debian slim for full multimedia tool availability
+# (Alpine does not package dcraw; debian:bookworm-slim ships ffmpeg, imagemagick, dcraw)
+FROM debian:bookworm-slim
 
-RUN apk --no-cache add ca-certificates tzdata ffmpeg imagemagick dcraw
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      tzdata \
+      ffmpeg \
+      imagemagick \
+      dcraw \
+      libraw-bin \
+    && rm -rf /var/lib/apt/lists/* \
+    # libraw-bin provides dcraw_emu — symlink as 'dcraw' fallback if package dcraw absent
+    && (which dcraw > /dev/null 2>&1 || \
+        (which dcraw_emu > /dev/null 2>&1 && ln -s "$(which dcraw_emu)" /usr/local/bin/dcraw)) \
+    || true
 
 # Create non-root user
-RUN addgroup -S archiver && adduser -S archiver -G archiver
+RUN groupadd -r archiver && useradd -r -g archiver archiver
 
 WORKDIR /app
 
 COPY --from=builder /build/filearchiver-web /app/filearchiver-web
 
-# /data/db   → mount your filearchiver.db here
+# /data/db      → mount your filearchiver.db here
 # /data/archive → mount your archive root here
 # /data/thumbs  → thumbnail cache (optional, can be tmpfs)
+# /data/proxies → proxy/preview cache
 RUN mkdir -p /data/db /data/archive /data/thumbs /data/proxies && \
     chown -R archiver:archiver /data
 
