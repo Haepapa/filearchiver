@@ -23,31 +23,100 @@
       @keydown.arrow-right.window="if(viewerOpen) nextFile()">
 
   <!-- ── Header ── -->
-  <header class="bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between flex-shrink-0 z-10 shadow-sm">
+  <header class="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between flex-shrink-0 z-20 shadow-sm relative">
     <div class="flex items-center gap-2.5">
       <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
           d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
       </svg>
-      <span class="text-lg font-semibold tracking-tight">filearchiver</span>
+      <span class="text-base md:text-lg font-semibold tracking-tight">filearchiver</span>
     </div>
-    <nav class="flex gap-1">
+
+    <!-- Desktop nav (hidden on small screens) -->
+    <nav class="hidden md:flex gap-1">
       <template x-for="[id, label] in [['dashboard','Dashboard'],['files','Files'],['search','Search'],['duplicates','Duplicates'],['tags','Tags'],['history','History'],['trash','Trash'],['settings','Settings']]" :key="id">
-        <button @click="page = id"
+        <button @click="page = id; mobileMenuOpen = false; mobileSidebarOpen = false"
           :class="page === id ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
           class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
           x-text="label">
         </button>
       </template>
     </nav>
+
+    <!-- Mobile hamburger button -->
+    <button @click="mobileMenuOpen = !mobileMenuOpen"
+            class="md:hidden flex items-center justify-center w-9 h-9 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+            :aria-label="mobileMenuOpen ? 'Close menu' : 'Open menu'">
+      <svg x-show="!mobileMenuOpen" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+      </svg>
+      <svg x-show="mobileMenuOpen" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
   </header>
 
+  <!-- Mobile nav dropdown -->
+  <div x-show="mobileMenuOpen" x-transition:enter="transition ease-out duration-100"
+       x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
+       x-transition:leave="transition ease-in duration-75"
+       x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-1"
+       @click.away="mobileMenuOpen = false"
+       class="md:hidden bg-white border-b border-gray-200 shadow-lg z-10 flex-shrink-0">
+    <div class="grid grid-cols-4 gap-1 p-3">
+      <template x-for="[id, label, icon] in [
+        ['dashboard','Dashboard','M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6'],
+        ['files','Files','M3 7h18M3 12h18M3 17h18'],
+        ['search','Search','M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0'],
+        ['duplicates','Dupes','M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z'],
+        ['tags','Tags','M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z'],
+        ['history','History','M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z'],
+        ['trash','Trash','M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16'],
+        ['settings','Settings','M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z']
+      ]" :key="id">
+        <button @click="page = id; mobileMenuOpen = false; mobileSidebarOpen = false"
+          :class="page === id ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' : 'text-gray-600 hover:bg-gray-50'"
+          class="flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl text-xs font-medium transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="icon"/>
+          </svg>
+          <span x-text="label"></span>
+        </button>
+      </template>
+    </div>
+  </div>
+
   <!-- ── Body (sidebar + main) ── -->
-  <div class="flex flex-1 overflow-hidden">
+  <div class="flex flex-1 overflow-hidden relative">
+
+    <!-- Mobile sidebar backdrop (Files page) -->
+    <div x-show="page === 'files' && mobileSidebarOpen"
+         class="fixed inset-0 bg-black/40 z-30 md:hidden"
+         @click="mobileSidebarOpen = false">
+    </div>
 
     <!-- ── Sidebar (Files page only) ── -->
-    <aside x-show="page === 'files'" x-transition:enter="transition-all duration-150"
-      class="w-56 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0 py-3 px-2 flex flex-col gap-1">
+    <!-- Desktop: inline in flow. Mobile: fixed overlay sliding in from left. -->
+    <aside
+      :class="[
+        page === 'files' ? '' : 'hidden',
+        mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+      ].join(' ')"
+      class="fixed md:relative inset-y-0 left-0 z-40 md:z-auto
+             w-64 md:w-56 bg-white border-r border-gray-200
+             overflow-y-auto flex-shrink-0 py-3 px-2 flex flex-col gap-1
+             transition-transform duration-200 ease-in-out">
+
+      <!-- Mobile close button -->
+      <div class="flex items-center justify-between mb-1 md:hidden px-1">
+        <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Browse</span>
+        <button @click="mobileSidebarOpen = false"
+                class="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
 
       <!-- All Files -->
       <button class="sidebar-link w-full text-left"
@@ -302,12 +371,21 @@
       </div>
 
       <!-- ════════════════ FILES ════════════════ -->
-      <div x-show="page === 'files'" class="p-6">
+      <div x-show="page === 'files'" class="p-4 md:p-6">
 
         <!-- Filter bar + controls -->
-        <div class="flex flex-wrap items-center gap-3 mb-4">
+        <div class="flex flex-wrap items-center gap-2 md:gap-3 mb-4">
+          <!-- Mobile sidebar toggle (browse by type/date/tag) -->
+          <button @click="mobileSidebarOpen = true"
+                  class="md:hidden flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-600 hover:bg-gray-50 transition-colors flex-shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+            </svg>
+            Browse
+          </button>
+
           <!-- Search -->
-          <div class="relative flex-1 min-w-48">
+          <div class="relative flex-1 min-w-40">
             <svg class="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
             </svg>
@@ -1043,11 +1121,33 @@
       <!-- ══════════════════════════════════════════════════════════════
            SEARCH PAGE
            ══════════════════════════════════════════════════════════════ -->
-      <div x-show="page === 'search'" class="flex flex-1 overflow-hidden">
+      <div x-show="page === 'search'" class="flex flex-1 overflow-hidden relative">
 
-        <!-- Filter sidebar -->
-        <aside class="w-56 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0 py-4 px-3">
-          <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Filters</h2>
+        <!-- Mobile search-filters backdrop -->
+        <div x-show="mobileSidebarOpen"
+             class="fixed inset-0 bg-black/40 z-30 md:hidden"
+             @click="mobileSidebarOpen = false">
+        </div>
+
+        <!-- Filter sidebar — desktop: inline, mobile: slide-in overlay -->
+        <aside
+          :class="mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'"
+          class="fixed md:relative inset-y-0 left-0 z-40 md:z-auto
+                 w-64 md:w-56 bg-white border-r border-gray-200
+                 overflow-y-auto flex-shrink-0 py-4 px-3
+                 transition-transform duration-200 ease-in-out">
+
+          <!-- Mobile close button -->
+          <div class="flex items-center justify-between mb-2 md:hidden">
+            <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Filters</h2>
+            <button @click="mobileSidebarOpen = false"
+                    class="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+          <h2 class="hidden md:block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Filters</h2>
 
           <!-- Extension -->
           <div class="mb-4">
@@ -1091,25 +1191,36 @@
           </div>
 
           <!-- Clear filters -->
-          <button @click="clearSearchFilters()"
+          <button @click="clearSearchFilters(); mobileSidebarOpen = false"
             class="mt-4 w-full px-3 py-1.5 rounded border border-gray-300 text-xs text-gray-600 hover:bg-gray-100 transition-colors">
             Clear filters
           </button>
         </aside>
 
         <!-- Results pane -->
-        <div class="flex-1 overflow-y-auto p-6">
+        <div class="flex-1 overflow-y-auto p-4 md:p-6">
           <!-- Search box -->
-          <div class="mb-6">
-            <div class="relative max-w-2xl">
-              <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
-                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
-              </svg>
-              <input type="search" x-model.debounce.400ms="searchQuery"
-                placeholder="Search files by name, path…"
-                class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm" />
+          <div class="mb-4 md:mb-6">
+            <div class="flex gap-2">
+              <!-- Mobile filters button -->
+              <button @click="mobileSidebarOpen = true"
+                      class="md:hidden flex-shrink-0 flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-gray-300 bg-white text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z"/>
+                </svg>
+                Filters
+              </button>
+              <div class="relative flex-1 max-w-2xl">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+                </svg>
+                <input type="search" x-model.debounce.400ms="searchQuery"
+                  placeholder="Search files by name, path…"
+                  class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm" />
+              </div>
             </div>
             <p class="text-sm text-gray-500 mt-2" x-show="searchResult">
               <span x-text="searchResult?.total?.toLocaleString() ?? 0"></span> result(s)

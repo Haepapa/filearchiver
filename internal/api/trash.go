@@ -125,6 +125,11 @@ func handlePermanentlyDeleteTrash(cfg Config) http.HandlerFunc {
 			return
 		}
 
+		// Remove proxy file if one was generated.
+		if file.ProxyPath != "" {
+			_ = os.Remove(file.ProxyPath) // ignore error — proxy is best-effort
+		}
+
 		if err := db.DeleteFileRecord(cfg.DB, id); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -166,6 +171,12 @@ func handleEmptyTrash(cfg Config) http.HandlerFunc {
 				errs = append(errs, f.FileName+": "+err.Error())
 				continue
 			}
+
+			// Remove proxy file if one was generated.
+			if f.ProxyPath != "" {
+				_ = os.Remove(f.ProxyPath)
+			}
+
 			if err := db.DeleteFileRecord(cfg.DB, f.ID); err != nil {
 				errs = append(errs, f.FileName+": "+err.Error())
 				continue
