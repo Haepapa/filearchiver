@@ -45,17 +45,17 @@ func main() {
 
 	database, err := db.Open(*dbPath)
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		log.Fatalf("Failed to open database %q: %v", *dbPath, err)
 	}
 	defer database.Close()
 
 	if err := db.Migrate(database); err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
+		log.Fatalf("Failed to run migrations on %q: %v", *dbPath, err)
 	}
 
 	// Seed proxy settings defaults (no-op if already present).
 	if err := db.InitProxySettings(database); err != nil {
-		log.Fatalf("Failed to init proxy settings: %v", err)
+		log.Fatalf("Failed to init proxy settings in %q: %v", *dbPath, err)
 	}
 
 	cfg := api.Config{
