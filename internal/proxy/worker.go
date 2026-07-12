@@ -91,6 +91,13 @@ func (w *Worker) Start(ctx context.Context) {
 		log.Printf("[proxy] reset processing rows: %v", err)
 	}
 
+	// Reset any 'skipped' rows so they are re-evaluated against current
+	// settings. This is safe because EnqueueEligibleFiles will re-skip
+	// files that are still below the size threshold.
+	if err := db.ResetSkippedProxies(w.database); err != nil {
+		log.Printf("[proxy] reset skipped rows: %v", err)
+	}
+
 	// Enqueue files that haven't been evaluated yet.
 	w.enqueue()
 
