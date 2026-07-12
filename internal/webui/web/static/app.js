@@ -167,7 +167,15 @@ document.addEventListener('alpine:init', () => {
 
     get viewerType() {
       if (!this.viewerFile) return 'other';
-      return this.viewerTypeForExt(this.viewerFile.extension || '');
+      const native = this.viewerTypeForExt(this.viewerFile.extension || '');
+      // If the native format isn't previewable but a proxy exists, derive the
+      // viewer type from the proxy extension instead.
+      // e.g. CR2 → _proxy.jpg → 'image', DNXHR .mov → _proxy.mp4 → 'video'
+      if (native === 'other' && this.viewerFile.proxy_status === 'done' && this.viewerFile.proxy_path) {
+        const proxyExt = (this.viewerFile.proxy_path.split('.').pop() || '').toLowerCase();
+        return this.viewerTypeForExt(proxyExt);
+      }
+      return native;
     },
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
